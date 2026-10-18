@@ -131,6 +131,22 @@ class ProductionSettingsTests(SimpleTestCase):
         self.assertIn('EMAIL_BACKEND doit permettre un véritable envoi', result.stderr)
 
 
+class DjangoAdminBrandingTests(TestCase):
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    })
+    def test_admin_login_displays_nexora_branding_and_logo(self):
+        response = self.client.get('/admin/login/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'NEXORA')
+        self.assertContains(response, 'core/nexora-admin-logo.png')
+        self.assertContains(response, 'core/admin.css')
+
+
 class CoreApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(

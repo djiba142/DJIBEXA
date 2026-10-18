@@ -347,6 +347,7 @@ class PurchaseReceipt(models.Model):
     )
     allocation_method = models.CharField(max_length=20, choices=ALLOCATION_METHOD_CHOICES, default='quantity')
     notes = models.TextField(blank=True, default='')
+    supplier_document_reference = models.CharField(max_length=255, blank=True, default='')
     discrepancy_reason = models.TextField(blank=True, default='')
     decision_reason = models.TextField(blank=True, default='')
     created_by = models.ForeignKey(
@@ -419,6 +420,10 @@ class PurchaseReceiptItem(models.Model):
     items_per_carton = models.PositiveIntegerField(default=1)
     supplier_reference = models.CharField(max_length=120, blank=True, default='')
     supplier_barcode = models.CharField(max_length=120, blank=True, default='')
+    supplier_lot_reference = models.CharField(max_length=120, blank=True, default='')
+    condition_status = models.CharField(max_length=120, blank=True, default='')
+    packaging_condition = models.CharField(max_length=120, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property

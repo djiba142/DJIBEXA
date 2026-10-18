@@ -157,7 +157,7 @@ class PurchaseOrderAccessPermission(BasePermission):
         ) or (
             request.method in {'PATCH', 'PUT'} and action is None
         ) or (
-            request.method == 'POST' and action == 'send'
+            request.method == 'POST' and action in {'send', 'email'}
         )
 
     def has_object_permission(self, request, view, obj):
@@ -166,7 +166,7 @@ class PurchaseOrderAccessPermission(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         action = getattr(view, 'action', None) or getattr(view, 'kwargs', {}).get('action')
-        if action == 'send':
+        if action in {'send', 'email'}:
             return obj.status == 'draft' and obj.created_by_id == request.user.id
         return (
             request.method in {'PATCH', 'PUT'}

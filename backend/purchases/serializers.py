@@ -372,7 +372,8 @@ class PurchaseReceiptItemSerializer(serializers.ModelSerializer):
             'quantity_quarantined', 'quantity_quarantine_remaining',
             'discrepancy_reason', 'unit_cost', 'items_per_carton',
             'supplier_reference', 'supplier_barcode', 'line_total', 'real_unit_cost',
-            'real_line_total',
+            'real_line_total', 'supplier_lot_reference', 'condition_status',
+            'packaging_condition', 'notes',
         ]
         read_only_fields = [
             'id', 'quantity_quarantine_remaining', 'line_total',
@@ -472,10 +473,10 @@ class PurchaseReceiptSerializer(serializers.ModelSerializer):
             'handling_cost', 'insurance_cost', 'other_cost', 'total_cost',
             'reference_exchange_rate', 'exchange_rate_reason',
             'exchange_rate_applied_at', 'exchange_rate_applied_by_name',
-            'items', 'created_at', 'updated_at'
+            'items', 'created_at', 'updated_at', 'supplier_document_reference',
         ]
         read_only_fields = [
-            'id', 'received_date', 'status', 'currency', 'exchange_rate',
+            'id', 'status', 'currency', 'exchange_rate',
             'exchange_rate_date', 'cost_status', 'decision_reason', 'created_by',
             'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at',
             'version', 'reviewed_version', 'created_at', 'updated_at', 'total_cost',

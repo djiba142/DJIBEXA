@@ -1,6 +1,12 @@
+from smtplib import SMTPException
+from uuid import uuid4
+
+from django.conf import settings
+from django.core.mail import EmailMessage
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
+from rest_framework.parsers import FormParser, MultiPartParser
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.exceptions import PermissionDenied
@@ -27,6 +33,7 @@ from .models import (
     PurchaseReceiptItem,
     ReceiptQuarantine,
 )
+from .receipt_imports import parse_receipt_import
 from .serializers import (
     PurchaseOrderSerializer,
     PurchaseReceiptSerializer,
@@ -227,6 +234,115 @@ class PurchaseOrderActionView(generics.GenericAPIView):
         return Response(self.get_serializer(order).data, status=status.HTTP_200_OK)
 
 
+class PurchaseOrderEmailView(generics.GenericAPIView):
+    action = 'email'
+    queryset = PurchaseOrder.objects.select_related('supplier')
+    serializer_class = PurchaseOrderSerializer
+    parser_classes = [FormParser, MultiPartParser]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        IsTenantAssignedUser,
+        PurchaseOrderAccessPermission,
+    ]
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        order = tenant_scoped_queryset(
+            PurchaseOrder.objects.select_for_update().select_related('supplier'),
+            request.user,
+        ).filter(pk=kwargs['pk']).first()
+        if order is None:
+            return Response({'detail': 'Commande introuvable.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, order)
+        if order.status != 'draft':
+            return Response(
+                {'detail': 'Seul un brouillon peut être envoyé par e-mail.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if not order.items.exists():
+            return Response(
+                {'detail': 'Ajoutez au moins un produit avant d’envoyer la commande.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        recipient = order.supplier.email.strip()
+        if not recipient:
+            return Response(
+                {'email': 'Aucune adresse e-mail fournisseur n’est enregistrée.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if settings.EMAIL_BACKEND in {
+            'django.core.mail.backends.console.EmailBackend',
+            'django.core.mail.backends.dummy.EmailBackend',
+            'django.core.mail.backends.filebased.EmailBackend',
+            'django.core.mail.backends.locmem.EmailBackend',
+        }:
+            return Response(
+                {'email': 'Un service d’e-mail réel n’est pas configuré pour l’envoi.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        uploaded_pdf = request.FILES.get('file')
+        if uploaded_pdf is None:
+            return Response(
+                {'file': 'Générez et joignez le bon de commande PDF.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if uploaded_pdf.size > 10 * 1024 * 1024:
+            return Response(
+                {'file': 'Le PDF ne doit pas dépasser 10 Mo.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        uploaded_pdf.seek(0)
+        pdf_bytes = uploaded_pdf.read()
+        if not pdf_bytes.startswith(b'%PDF-'):
+            return Response(
+                {'file': 'Le fichier joint n’est pas un PDF valide.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        message = EmailMessage(
+            subject=f'Bon de commande fournisseur {order.reference}',
+            body=(
+                f"Bonjour {order.supplier.contact_name or order.supplier.name},\n\n"
+                f"Veuillez trouver ci-joint notre bon de commande {order.reference}.\n\n"
+                "Cordialement"
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[recipient],
+        )
+        message.attach(
+            f'{order.reference}.pdf',
+            pdf_bytes,
+            'application/pdf',
+        )
+        try:
+            sent_count = message.send(fail_silently=False)
+        except (SMTPException, OSError) as error:
+            return Response(
+                {'email': f'L’envoi au fournisseur a échoué : {error}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if sent_count != 1:
+            return Response(
+                {'email': 'Le fournisseur n’a pas reçu le message : le service e-mail a refusé l’envoi.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        order.status = 'submitted'
+        order.save(update_fields=['status', 'updated_at'])
+        AuditLog.objects.create(
+            user=request.user,
+            action='purchase_order',
+            model_name='PurchaseOrder',
+            record_id=order.pk,
+            details=f'Commande fournisseur {order.reference} envoyée par e-mail à {recipient}.',
+        )
+        return Response(
+            {'detail': 'Bon de commande envoyé au fournisseur.', 'status': order.status},
+            status=status.HTTP_200_OK,
+        )
+
+
 class PurchaseReceiptListCreateView(generics.ListCreateAPIView):
     queryset = PurchaseReceipt.objects.select_related('purchase_order__supplier').prefetch_related('items__product').all()
     serializer_class = PurchaseReceiptSerializer
@@ -355,6 +471,126 @@ class PurchaseReceiptBatchCreateView(generics.GenericAPIView):
             })
 
         created = [serializer.save() for serializer in serializer_instances]
+        return Response(
+            self.get_serializer(created, many=True).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PurchaseReceiptImportView(generics.GenericAPIView):
+    serializer_class = PurchaseReceiptSerializer
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        IsTenantAssignedUser,
+        PurchaseReceiptAccessPermission,
+    ]
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        uploaded_file = request.FILES.get('file')
+        if uploaded_file is None:
+            raise serializers.ValidationError({'file': 'Sélectionnez un fichier de réception.'})
+
+        order = tenant_scoped_queryset(
+            PurchaseOrder.objects.select_related('supplier').prefetch_related('items__product'),
+            request.user,
+        ).filter(pk=request.data.get('purchase_order')).first()
+        if order is None:
+            raise serializers.ValidationError({'purchase_order': 'Commande introuvable.'})
+        if order.status not in {'approved', 'partial_received'}:
+            raise serializers.ValidationError({
+                'purchase_order': 'La commande doit être approuvée avant sa réception.',
+            })
+
+        locations = list(accessible_locations(request.user).filter(is_active=True))
+        default_location = next(
+            (
+                location for location in locations
+                if str(location.pk) == str(request.data.get('location', ''))
+            ),
+            None,
+        )
+        preview = parse_receipt_import(
+            uploaded_file,
+            order,
+            default_location,
+            locations,
+        )
+        if not request.user.has_role('admin') and not getattr(request.user, 'is_superuser', False):
+            for row in preview['rows']:
+                row.pop('unit_cost', None)
+
+        action = request.data.get('action', 'preview')
+        if action == 'preview':
+            return Response(preview, status=status.HTTP_200_OK)
+        if action != 'confirm':
+            raise serializers.ValidationError({'action': 'Action d’import inconnue.'})
+        if preview['errors']:
+            raise serializers.ValidationError({'errors': preview['errors']})
+
+        grouped_rows = {}
+        for row in preview['rows']:
+            if row['quantity_received'] > 0:
+                grouped_rows.setdefault(row['location'], []).append(row)
+        if not grouped_rows:
+            raise serializers.ValidationError({
+                'file': 'Le fichier ne contient aucune quantité réellement reçue supérieure à zéro.',
+            })
+
+        receipt_reason = str(request.data.get('discrepancy_reason', '')).strip()
+        receipt_notes = []
+        if preview['source_reference']:
+            receipt_notes.append(f"Référence du bon importé : {preview['source_reference']}")
+        if preview['source_name']:
+            receipt_notes.append(f"Fichier source : {preview['source_name']}")
+        if request.data.get('notes'):
+            receipt_notes.append(str(request.data['notes']).strip())
+        receipt_notes = '\n'.join(note for note in receipt_notes if note)
+
+        created = []
+        for location_id, rows in grouped_rows.items():
+            receipt_data = {
+                'purchase_order': order.pk,
+                'location': location_id,
+                'reference': f"REC-IMP-{timezone.now():%Y%m%d%H%M%S}-{uuid4().hex[:8]}",
+                'allocation_method': 'value',
+                'notes': receipt_notes,
+                'supplier_document_reference': preview['supplier_document_reference'],
+                'discrepancy_reason': receipt_reason,
+                'items': [
+                    {
+                        'product': row['product'],
+                        'quantity_received': row['quantity_received'],
+                        'quantity_accepted': row['quantity_accepted'],
+                        'quantity_quarantined': row['quantity_quarantined'],
+                        'discrepancy_reason': row['discrepancy_reason'],
+                        'items_per_carton': row['items_per_carton'],
+                        'supplier_reference': row['supplier_reference'],
+                        'supplier_barcode': row['supplier_barcode'],
+                        'supplier_lot_reference': row['supplier_lot_reference'],
+                        'condition_status': row['condition_status'],
+                        'packaging_condition': row['packaging_condition'],
+                        'notes': row['notes'],
+                        **({'unit_cost': row['unit_cost']} if row.get('unit_cost') is not None else {}),
+                    }
+                    for row in rows
+                ],
+            }
+            if preview['received_date']:
+                receipt_data['received_date'] = preview['received_date']
+            serializer = self.get_serializer(data=receipt_data)
+            serializer.is_valid(raise_exception=True)
+            created.append(serializer.save())
+
+        for receipt in created:
+            AuditLog.objects.create(
+                user=request.user,
+                action='create',
+                model_name='PurchaseReceipt',
+                record_id=receipt.pk,
+                details=f'Brouillon de réception créé par import: {receipt.reference}',
+            )
         return Response(
             self.get_serializer(created, many=True).data,
             status=status.HTTP_201_CREATED,

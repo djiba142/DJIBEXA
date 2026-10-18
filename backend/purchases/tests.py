@@ -1,8 +1,12 @@
 from datetime import timedelta
 from decimal import Decimal
+from io import BytesIO
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.utils import timezone
+from openpyxl import Workbook
 from rest_framework.test import APIClient
 
 from core.models import AuditLog, Tenant
@@ -108,6 +112,182 @@ class PurchaseOrderApiTests(TestCase):
         )
         self.assertEqual(validated.status_code, 200, validated.data)
         return validated
+
+    def test_purchase_order_email_attaches_pdf_and_submits_without_changing_stock(self):
+        order_response = self.client.post(
+            '/api/purchases/orders/',
+            {
+                'supplier': self.supplier.id,
+                'reference': 'PO-EMAIL-001',
+                'items': [{
+                    'product': self.product.id,
+                    'quantity': 3,
+                    'unit_cost': '125000.00',
+                }],
+            },
+            format='json',
+        )
+        self.assertEqual(order_response.status_code, 201, order_response.data)
+        uploaded_pdf = SimpleUploadedFile(
+            'PO-EMAIL-001.pdf',
+            b'%PDF-1.4\npurchase-order-test',
+            content_type='application/pdf',
+        )
+
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend'):
+            with patch('purchases.views.EmailMessage') as email_message:
+                email_message.return_value.send.return_value = 1
+                response = self.client.post(
+                    f'/api/v1/purchase-orders/{order_response.data["id"]}/email/',
+                    {'file': uploaded_pdf},
+                    format='multipart',
+                )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['status'], 'submitted')
+        self.assertEqual(email_message.call_args.kwargs['to'], [self.supplier.email])
+        attachment = email_message.return_value.attach.call_args.args
+        self.assertEqual(attachment[0], 'PO-EMAIL-001.pdf')
+        self.assertEqual(attachment[1], b'%PDF-1.4\npurchase-order-test')
+        order = PurchaseOrder.objects.get(pk=order_response.data['id'])
+        self.assertEqual(order.status, 'submitted')
+        self.assertFalse(StockItem.objects.filter(product=self.product).exists())
+
+    def test_purchase_order_email_rejects_unconfigured_email_and_invalid_pdf(self):
+        order_response = self.client.post(
+            '/api/purchases/orders/',
+            {
+                'supplier': self.supplier.id,
+                'reference': 'PO-EMAIL-002',
+                'items': [{
+                    'product': self.product.id,
+                    'quantity': 1,
+                    'unit_cost': '100.00',
+                }],
+            },
+            format='json',
+        )
+        self.assertEqual(order_response.status_code, 201, order_response.data)
+        endpoint = f'/api/v1/purchase-orders/{order_response.data["id"]}/email/'
+
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend'):
+            unconfigured = self.client.post(
+                endpoint,
+                {'file': SimpleUploadedFile('order.pdf', b'%PDF-1.4\nfile')},
+                format='multipart',
+            )
+        self.assertEqual(unconfigured.status_code, 503, unconfigured.data)
+
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend'):
+            invalid_pdf = self.client.post(
+                endpoint,
+                {'file': SimpleUploadedFile('order.pdf', b'not a PDF')},
+                format='multipart',
+            )
+        self.assertEqual(invalid_pdf.status_code, 400, invalid_pdf.data)
+        order = PurchaseOrder.objects.get(pk=order_response.data['id'])
+        self.assertEqual(order.status, 'draft')
+
+    def test_receipt_import_matches_existing_order_product_and_waits_for_validation(self):
+        order = self.create_approved_order(
+            'PO-IMPORT-001',
+            [{'product': self.product.id, 'quantity': 4, 'unit_cost': '125000.00'}],
+        )
+
+        def workbook_file():
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(['N° bon de réception interne', 'BR-SUP-19'])
+            sheet.append(['Date de réception', '18/01/2025'])
+            sheet.append(['Fournisseur', self.supplier.name])
+            sheet.append(['N° commande fournisseur', 'PO-IMPORT-001'])
+            sheet.append(['Facture / bon de livraison fournisseur', 'BL-SUP-778'])
+            sheet.append(['Devise achat', 'GNF'])
+            sheet.append([])
+            sheet.append([
+                'Référence article NEXORA',
+                'Référence article fournisseur',
+                'Désignation / description',
+                'Quantité commandée',
+                'Quantité réellement reçue',
+                'Quantité acceptée',
+                'À isoler',
+                "Prix d'achat unitaire",
+                'Pièces par carton',
+                'Motif écart / réserves',
+                'État / conformité',
+                'État emballage / qualité',
+                'N° lot / réf. livraison',
+                'Commentaire',
+            ])
+            sheet.append([
+                'ACH-001',
+                'SUP-ACH-001',
+                self.product.name,
+                4,
+                3,
+                2,
+                1,
+                130000,
+                1,
+                'Une unité isolée pour emballage endommagé.',
+                'Réception partielle',
+                'Carton ouvert',
+                'LOT-77',
+                'À contrôler avant rangement.',
+            ])
+            content = BytesIO()
+            workbook.save(content)
+            return SimpleUploadedFile(
+                'bon-reception-test.xlsx',
+                content.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+
+        endpoint = '/api/purchases/receipts/import/'
+        preview = self.client.post(
+            endpoint,
+            {
+                'purchase_order': order.data['id'],
+                'location': self.location.id,
+                'file': workbook_file(),
+            },
+            format='multipart',
+        )
+        self.assertEqual(preview.status_code, 200, preview.data)
+        self.assertEqual(preview.data['valid_rows'], 1, preview.data)
+        self.assertEqual(preview.data['supplier_document_reference'], 'BL-SUP-778')
+        self.assertEqual(preview.data['rows'][0]['product'], self.product.id)
+
+        created = self.client.post(
+            endpoint,
+            {
+                'purchase_order': order.data['id'],
+                'location': self.location.id,
+                'action': 'confirm',
+                'discrepancy_reason': 'Réception partielle avec une unité isolée.',
+                'file': workbook_file(),
+            },
+            format='multipart',
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(len(created.data), 1)
+        receipt = PurchaseReceipt.objects.get(pk=created.data[0]['id'])
+        self.assertEqual(receipt.status, 'draft')
+        self.assertEqual(receipt.supplier_document_reference, 'BL-SUP-778')
+        item = receipt.items.get()
+        self.assertEqual(item.supplier_reference, 'SUP-ACH-001')
+        self.assertEqual(item.supplier_lot_reference, 'LOT-77')
+        self.assertEqual(item.condition_status, 'Réception partielle')
+        self.assertEqual(item.packaging_condition, 'Carton ouvert')
+        self.assertEqual(item.notes, 'À contrôler avant rangement.')
+        self.assertFalse(StockItem.objects.filter(product=self.product).exists())
+
+        self.submit_and_validate_receipt(receipt.pk)
+        self.assertEqual(
+            StockItem.objects.get(product=self.product, location=self.location).quantity,
+            2,
+        )
 
     def test_batch_receipt_drafts_can_be_allocated_to_multiple_warehouses_without_stock_change(self):
         second_location = InventoryLocation.objects.create(
