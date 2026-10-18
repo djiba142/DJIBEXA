@@ -10,8 +10,12 @@ htmlcov/
 # Django/local data
 backend/db.sqlite3
 backend/staticfiles/
+backend/private_supplier_imports/
+backend/private_invoices/
 .env
 .env.*
+deploy/docker.env
+!backend/.env.example
 
 # Frontend/dependency caches
 node_modules/

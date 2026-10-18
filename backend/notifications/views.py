@@ -1,77 +1,195 @@
 import csv
 import io
 
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
-from rest_framework import generics, permissions, status, views
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import generics, permissions, serializers, status
+from rest_framework.decorators import api_view, permission_classes, renderer_classes
+from rest_framework.permissions import BasePermission
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 
 from core.pagination import VersionedApiPagination
-from sales.models import Sale
-from users.permissions import role_permission
+from core.models import Tenant
+from core.tenancy import tenant_for_user
+from users.permissions import IsAdminUser, role_permission
+
 from .models import Notification
+from .reminders import (
+    generate_weekly_credit_reminders,
+    get_reminder_settings,
+    persist_reminder_settings,
+)
+from .renderers import CsvRenderer
 from .serializers import NotificationSerializer
-from .services import dispatch_whatsapp_notification
+from .services import dispatch_notification
+
+
+def visible_notifications(user):
+    tenant = tenant_for_user(user)
+    if tenant is None:
+        if Tenant.objects.exists() or getattr(user, 'is_platform_admin', False):
+            return Notification.objects.none()
+        return Notification.objects.filter(
+            Q(recipient_user__isnull=True) | Q(recipient_user=user)
+        )
+
+    legacy_owner = (
+        Q(sale__tenant_id=tenant.pk)
+        | Q(customer__tenant_id=tenant.pk)
+        | Q(recipient_user__tenant_id=tenant.pk)
+    )
+    same_tenant_relations = (
+        (Q(sale__isnull=True) | Q(sale__tenant_id__isnull=True) | Q(sale__tenant_id=tenant.pk))
+        & (
+            Q(customer__isnull=True)
+            | Q(customer__tenant_id__isnull=True)
+            | Q(customer__tenant_id=tenant.pk)
+        )
+        & (
+            Q(sale__customer__tenant_id__isnull=True)
+            | Q(sale__customer__tenant_id=tenant.pk)
+        )
+        & (
+            Q(recipient_user__isnull=True)
+            | Q(recipient_user__tenant_id__isnull=True)
+            | Q(recipient_user__tenant_id=tenant.pk)
+        )
+    )
+    legacy_scope = Q(tenant__isnull=True) & legacy_owner
+    if getattr(user, 'tenant_id', None) is None:
+        legacy_scope |= (
+            Q(tenant__isnull=True)
+            & (Q(recipient_user__isnull=True) | Q(recipient_user=user))
+        )
+
+    return Notification.objects.filter(
+        (Q(tenant_id=tenant.pk) | legacy_scope)
+        & same_tenant_relations
+    )
+
+
+class NotificationTenantPermission(BasePermission):
+    message = 'Votre compte doit être rattaché à un espace d’entreprise.'
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if getattr(request.user, 'is_platform_admin', False):
+            return False
+        if tenant_for_user(request.user) is not None:
+            return True
+        return not Tenant.objects.exists()
+
+
+class CreditReminderSettingsSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False)
+    frequency = serializers.ChoiceField(choices=['weekly'], required=False)
+    day_of_week = serializers.IntegerField(min_value=0, max_value=6, required=False)
+    time = serializers.TimeField(
+        format='%H:%M',
+        input_formats=['%H:%M'],
+        required=False,
+    )
+    timezone = serializers.CharField(read_only=True)
+
+
+class CreditReminderSettingsView(generics.GenericAPIView):
+    serializer_class = CreditReminderSettingsSerializer
+
+    def get_permissions(self):
+        permission_classes = [
+            permissions.IsAuthenticated,
+            NotificationTenantPermission,
+            role_permission('notifications'),
+        ]
+        if self.request.method not in permissions.SAFE_METHODS:
+            permission_classes.append(IsAdminUser)
+        return [permission() for permission in permission_classes]
+
+    def get(self, request, *args, **kwargs):
+        tenant = tenant_for_user(request.user)
+        serializer = self.get_serializer(get_reminder_settings(tenant))
+        return Response(serializer.data)
+
+    def patch(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        settings_data = {
+            key: value for key, value in serializer.validated_data.items()
+            if key != 'timezone'
+        }
+        response_data = persist_reminder_settings(
+            settings_data,
+            request.user,
+            tenant_for_user(request.user),
+        )
+        return Response(self.get_serializer(response_data).data)
 
 
 class WeeklyCreditReminderView(generics.GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
 
     def post(self, request, *args, **kwargs):
-        created = 0
-        open_credit_sales = Sale.objects.filter(payment_method='credit').select_related('customer')
-
-        for sale in open_credit_sales.order_by('customer_id', '-sale_date'):
-            remaining = sale.total_amount - sale.amount_paid
-            if remaining <= 0:
-                continue
-
-            customer = sale.customer
-            if not customer.phone:
-                continue
-
-            if Notification.objects.filter(
-                sale=sale,
-                event_type='credit_reminder',
-                channel='whatsapp',
-                recipient_phone=customer.phone,
-            ).exists():
-                continue
-
-            message = (
-                f"Bonjour {customer.full_name}, votre solde restant sur la vente #{sale.id} "
-                f"est de {remaining:.2f} FCFA. Merci de régulariser votre paiement."
-            )
-            Notification.objects.create(
-                sale=sale,
-                channel='whatsapp',
-                event_type='credit_reminder',
-                status='pending',
-                message=message,
-                recipient_phone=customer.phone,
-            )
-            created += 1
-
-        return Response({'created': created, 'generated_at': timezone.now()}, status=status.HTTP_200_OK)
+        created_ids = generate_weekly_credit_reminders(
+            tenant=tenant_for_user(request.user),
+            include_legacy=request.user.tenant_id is None,
+        )
+        return Response({
+            'created': len(created_ids),
+            'generated_at': timezone.now(),
+            'notification_ids': created_ids,
+        }, status=status.HTTP_200_OK)
 
 
 class NotificationListCreateView(generics.ListCreateAPIView):
-    queryset = Notification.objects.select_related('sale').all()
     serializer_class = NotificationSerializer
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
+
+    def get_queryset(self):
+        return visible_notifications(self.request.user).select_related(
+            'sale', 'customer', 'recipient_user',
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=tenant_for_user(self.request.user))
 
 
 class NotificationDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Notification.objects.select_related('sale').all()
     serializer_class = NotificationSerializer
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
+
+    def get_queryset(self):
+        return visible_notifications(self.request.user).select_related(
+            'sale', 'customer', 'recipient_user',
+        )
 
 
 class NotificationReadView(generics.GenericAPIView):
-    queryset = Notification.objects.select_related('sale').all()
     serializer_class = NotificationSerializer
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
+
+    def get_queryset(self):
+        return visible_notifications(self.request.user).select_related(
+            'sale', 'customer', 'recipient_user',
+        )
 
     def post(self, request, *args, **kwargs):
         notification = self.get_object()
@@ -83,9 +201,17 @@ class NotificationReadView(generics.GenericAPIView):
 
 
 class NotificationDispatchView(generics.GenericAPIView):
-    queryset = Notification.objects.select_related('sale').all()
     serializer_class = NotificationSerializer
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
+
+    def get_queryset(self):
+        return visible_notifications(self.request.user).select_related(
+            'sale', 'customer', 'recipient_user',
+        )
 
     def post(self, request, *args, **kwargs):
         notification = self.get_object()
@@ -96,28 +222,38 @@ class NotificationDispatchView(generics.GenericAPIView):
             )
 
         if notification.channel == 'whatsapp':
-            result = dispatch_whatsapp_notification(notification)
+            result = dispatch_notification(notification.id)
+            notification.refresh_from_db()
+            if result.get('cancelled'):
+                return Response(NotificationSerializer(notification).data, status=status.HTTP_200_OK)
             if not result.get('success', False):
-                notification.status = 'failed'
-                notification.is_read = False
-                notification.save(update_fields=['status', 'is_read', 'updated_at'])
-                return Response(
-                    {'detail': result.get('error', 'Échec de l’envoi WhatsApp.')},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-
-        notification.status = 'sent'
-        notification.is_read = False
-        notification.save(update_fields=['status', 'is_read', 'updated_at'])
+                return Response({
+                    'detail': result.get('error', 'Échec de l’envoi WhatsApp.'),
+                    'status': notification.status,
+                    'attempt_count': notification.attempt_count,
+                    'next_attempt_at': notification.next_attempt_at,
+                }, status=status.HTTP_502_BAD_GATEWAY)
+        else:
+            notification.status = 'sent'
+            notification.is_read = False
+            notification.save(update_fields=['status', 'is_read', 'updated_at'])
         serializer = NotificationSerializer(notification)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class NotificationHistoryView(generics.ListAPIView):
-    queryset = Notification.objects.select_related('sale__customer').all()
     serializer_class = NotificationSerializer
     pagination_class = VersionedApiPagination
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
+
+    def get_queryset(self):
+        return visible_notifications(self.request.user).select_related(
+            'sale__customer', 'customer', 'recipient_user',
+        )
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset()).order_by('-created_at')
@@ -125,7 +261,7 @@ class NotificationHistoryView(generics.ListAPIView):
         items = []
         for notification in page or queryset:
             payload = NotificationSerializer(notification).data
-            customer = notification.sale.customer if notification.sale else None
+            customer = notification.customer or (notification.sale.customer if notification.sale else None)
             payload['customer_name'] = customer.full_name if customer else ''
             payload['customer_phone'] = customer.phone if customer else ''
             payload['sale_id'] = notification.sale_id
@@ -139,9 +275,16 @@ class NotificationHistoryView(generics.ListAPIView):
 
 
 @api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated, role_permission('notifications')])
+@renderer_classes([JSONRenderer, CsvRenderer])
+@permission_classes([
+    permissions.IsAuthenticated,
+    NotificationTenantPermission,
+    role_permission('notifications'),
+])
 def NotificationExportView(request, *args, **kwargs):
-    notifications = Notification.objects.select_related('sale__customer').order_by('-created_at')
+    notifications = visible_notifications(request.user).select_related(
+        'sale__customer', 'customer', 'recipient_user',
+    ).order_by('-created_at')
     csv_buffer = io.StringIO()
     writer = csv.writer(csv_buffer)
     writer.writerow([
@@ -149,7 +292,7 @@ def NotificationExportView(request, *args, **kwargs):
         'sale_id', 'sale_total', 'sale_status', 'message', 'created_at'
     ])
     for notification in notifications:
-        customer = notification.sale.customer if notification.sale else None
+        customer = notification.customer or (notification.sale.customer if notification.sale else None)
         writer.writerow([
             notification.id,
             notification.event_type,
@@ -170,6 +313,14 @@ def NotificationExportView(request, *args, **kwargs):
 
 
 class MessageHistoryView(generics.ListAPIView):
-    queryset = Notification.objects.select_related('sale').all()
     serializer_class = NotificationSerializer
-    permission_classes = [permissions.IsAuthenticated, role_permission('notifications')]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        NotificationTenantPermission,
+        role_permission('notifications'),
+    ]
+
+    def get_queryset(self):
+        return visible_notifications(self.request.user).select_related(
+            'sale', 'recipient_user',
+        )

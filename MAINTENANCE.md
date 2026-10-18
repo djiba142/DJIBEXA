@@ -598,11 +598,53 @@ Retour vers 1.4.0
 Le rollback doit être préparé avant les déploiements importants.
 44. SAUVEGARDES AVANT DÉPLOIEMENT
 Avant une modification importante de la base :
-Sauvegarde
+Sauvegarde PostgreSQL vérifiée
 → Déploiement
 → Migration
-→ Validation
-La sauvegarde permet de disposer d'un point de récupération en cas de problème.
+→ Contrôles applicatifs
+Conserver la sauvegarde sur un stockage protégé, séparé du serveur de base, avec
+une rétention définie. Une commande pg_dump réussie ne prouve pas à elle seule
+que la sauvegarde est restaurable ; effectuer périodiquement un essai dans une
+base isolée.
+
+Exemple PowerShell pour sauvegarder la base configurée. Définir auparavant
+DB_HOST, DB_PORT, DB_USER, DB_NAME et BACKUP_FILE dans la session ou le contexte
+d'exploitation approuvé. pg_dump demande le mot de passe si aucun mécanisme
+d'authentification PostgreSQL sécurisé n'est configuré. Ne pas mettre de mot de
+passe dans la commande ni dans un fichier versionné.
+
+```powershell
+pg_dump --format=custom --no-owner --file="$env:BACKUP_FILE" `
+  --host="$env:DB_HOST" --port="$env:DB_PORT" `
+  --username="$env:DB_USER" --dbname="$env:DB_NAME"
+if ($LASTEXITCODE -ne 0) { throw "Échec de pg_dump" }
+pg_restore --list "$env:BACKUP_FILE" > $null
+if ($LASTEXITCODE -ne 0) { throw "Sauvegarde PostgreSQL illisible" }
+```
+
+Pour tester une restauration, créer au préalable une base vide dédiée, par
+exemple `nexora_restore_check`, sur un serveur non productif. Définir les
+variables de connexion pour cette base isolée, puis restaurer et vérifier le
+schéma sans appliquer de nouvelles migrations :
+
+```powershell
+createdb --host="$env:DB_HOST" --port="$env:DB_PORT" `
+  --username="$env:DB_USER" --maintenance-db=postgres "$env:RESTORE_DB_NAME"
+if ($LASTEXITCODE -ne 0) { throw "Échec de création de la base de restauration" }
+pg_restore --exit-on-error --no-owner --host="$env:DB_HOST" `
+  --port="$env:DB_PORT" --username="$env:DB_USER" `
+  --dbname="$env:RESTORE_DB_NAME" "$env:BACKUP_FILE"
+if ($LASTEXITCODE -ne 0) { throw "Échec de restauration PostgreSQL" }
+```
+
+Pointer ensuite temporairement l'environnement applicatif de test vers cette
+base restaurée (`DB_ENGINE=postgresql`, `DB_NAME=RESTORE_DB_NAME` et identifiants
+correspondants), puis exécuter `python manage.py check` et
+`python manage.py migrate --check` depuis le répertoire backend. Vérifier aussi
+les parcours métier critiques et les volumes de données attendus avant de
+déclarer l'essai réussi. Ne jamais exécuter `pg_restore` sur la base de
+production pour tester une sauvegarde ; la restauration de production est une
+procédure d'incident distincte avec approbation et arrêt des écritures.
 45. GESTION DES VARIABLES D'ENVIRONNEMENT
 Les environnements doivent disposer de configurations distinctes.
 Exemples :
@@ -612,6 +654,28 @@ API_BASE_URL
 WHATSAPP_API_KEY
 STORAGE_KEY
 Ces valeurs ne doivent pas être incluses dans le code source.
+
+Pour démarrer le backend en production, définir explicitement
+DJANGO_ENV=production, DJANGO_SECRET_KEY (clé aléatoire d'au moins 50 caractères
+et cinq caractères distincts), DJANGO_ALLOWED_HOSTS (liste sans joker, séparée
+par des virgules), DJANGO_DEBUG=False et DB_ENGINE=postgresql. Le démarrage
+échoue si la clé, les hôtes ou le moteur de base ne sont pas valides. Les cookies
+de session et CSRF sont sécurisés, la redirection HTTPS et HSTS sont activés par
+défaut. Si TLS est terminé par un proxy de confiance, vérifier sa configuration
+avant d'activer DJANGO_TRUST_X_FORWARDED_PROTO=True. Les valeurs de production
+doivent être configurées dans l'environnement de déploiement, jamais dans le
+dépôt. Configurer également FRONTEND_BASE_URL avec l'URL HTTPS du
+frontend : elle sert à la redirection de la racine backend et aux liens de
+réinitialisation de mot de passe. Le backend refuse en production une URL
+frontend HTTP, absente ou mal formée.
+Configurer un backend e-mail réel (`EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`,
+`DEFAULT_FROM_EMAIL` et, selon le fournisseur, identifiants TLS/SSL). Les
+backends console et mémoire sont refusés en production afin de ne pas écrire
+les liens d'invitation ou de réinitialisation dans les journaux ou en mémoire.
+SECURE_HSTS_INCLUDE_SUBDOMAINS reste désactivé par défaut : ne l'activer
+qu'après avoir confirmé que tous les sous-domaines sont servis exclusivement en
+HTTPS. SECURE_HSTS_PRELOAD est optionnel et ne doit être activé qu'après
+vérification de l'éligibilité et de la stratégie de retrait du domaine.
 46. SÉCURITÉ DU PROCESSUS CI/CD
 Le pipeline CI/CD doit être protégé.
 Seuls les utilisateurs autorisés doivent pouvoir :

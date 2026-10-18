@@ -1,6 +1,7 @@
 import hashlib
 import json
 
+from django.db import IntegrityError, transaction
 from rest_framework.response import Response
 
 from .models import IdempotencyRecord
@@ -46,3 +47,24 @@ def store_idempotent_response(request, endpoint, key, response):
         response_body=response_body,
         user=request.user,
     )
+
+
+def execute_idempotent_request(request, endpoint, operation):
+    key = request.headers.get('Idempotency-Key')
+    if not key:
+        return operation()
+
+    try:
+        with transaction.atomic():
+            _, replay = replay_idempotent_request(request, endpoint)
+            if replay is not None:
+                return replay
+
+            response = operation()
+            store_idempotent_response(request, endpoint, key, response)
+            return response
+    except IntegrityError:
+        _, replay = replay_idempotent_request(request, endpoint)
+        if replay is not None:
+            return replay
+        raise

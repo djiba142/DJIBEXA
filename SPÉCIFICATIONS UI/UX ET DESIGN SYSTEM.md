@@ -423,6 +423,8 @@ produit ;
 quantité ;
 emplacement ;
 statut.
+Les étiquettes imprimées en A4 présentent 20 unités par page (4 colonnes × 5 rangées), avec un cadre compact et un QR code lisible. L’étiquette d’un carton de réception indique la quantité initiale, le restant et, si la réception est connue, sa position dans le lot (ex. : carton 1/4).
+Les cartons d’échantillons sont enregistrés séparément pour une boutique, avec leur propre référence et QR code ainsi que le nombre réel d’échantillons contenus. Ils ne modifient pas le stock vendable.
 20. ÉCRAN DE VENTE / CAISSE
 Cet écran doit être l'un des plus rapides de l'application.
 Il doit permettre de commencer immédiatement une vente.

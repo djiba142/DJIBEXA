@@ -15,6 +15,8 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.conf import settings
+from django.conf.urls.static import static
 from django.shortcuts import redirect
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
@@ -29,12 +31,14 @@ from notifications.views import (
     NotificationReadView,
     WeeklyCreditReminderView,
 )
+from core.health import health_check
 
 
 def frontend_home(request):
-    return redirect('http://127.0.0.1:5500/html/dashboard/index.html')
+    return redirect(settings.FRONTEND_BASE_URL)
 
 urlpatterns = [
+    path('healthz/', health_check, name='health-check'),
     path('', frontend_home, name='frontend-home'),
     path('admin/', admin.site.urls),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
@@ -51,7 +55,11 @@ urlpatterns = [
     path('api/sales/', include('sales.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/expenses/', include('expenses.urls')),
+    path('api/finance/', include('finance.urls')),
     path('api/invoices/', include('invoices.urls')),
     path('api/documents/', include('documents.urls')),
     path('api/core/', include('core.urls')),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

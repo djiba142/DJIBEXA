@@ -1,5 +1,6 @@
 from django.urls import path
 
+from core.views import csrf_token
 from .views import (
     LoginView,
     LogoutView,
@@ -11,6 +12,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('csrf/', csrf_token, name='csrf-token'),
     path('pin-reset/request/', PinResetRequestView.as_view(), name='pin-reset-request'),
     path('pin-reset/confirm/', PinResetConfirmView.as_view(), name='pin-reset-confirm'),
     path('login/', LoginView.as_view(), name='user-login'),

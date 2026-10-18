@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+db.sqlite3
+media
+staticfiles
+private_supplier_imports
+private_invoices
+private_storefronts
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
