@@ -1,4 +1,4 @@
-# Déploiement NEXORA — Render et Docker
+# Déploiement DJIBEXA — Render et Docker
 
 ## État et limites
 
@@ -7,7 +7,7 @@ environnement Docker local composé de PostgreSQL, Django et TanStack Start.
 La configuration Render est déclarative : aucun service n'a été créé et aucune
 migration n'a été exécutée sur une base réelle.
 
-NEXORA n'a pas encore passé l'audit complet d'isolation endpoint par endpoint.
+DJIBEXA n'a pas encore passé l'audit complet d'isolation endpoint par endpoint.
 Ne pas ouvrir l'inscription ni connecter une deuxième entreprise avant la
 validation de toutes les API, fichiers, imports/exports, tâches différées et
 relations inter-entreprises. Les services Render décrits ici nécessitent des
@@ -71,23 +71,49 @@ Remplacer `POSTGRES_PASSWORD` et `DB_PASSWORD` par la même valeur locale, puis
 lancer :
 
 ```powershell
-docker compose up --build
+docker compose build
+docker compose up -d db
+docker compose run --rm backend python manage.py migrate --noinput
+docker compose up
 ```
 
 - Frontend : `http://localhost:3000`
 - API : `http://localhost:8000`
 - Contrôle API + PostgreSQL : `http://localhost:8000/healthz/`
 
-Compose attend PostgreSQL avant de lancer Django, applique les migrations à sa
-base locale, collecte les fichiers statiques et conserve PostgreSQL et les
-uploads dans des volumes Docker nommés. `docker compose down` conserve ces
-volumes ; ne pas ajouter `-v` si les données locales doivent être gardées.
+Compose lie le frontend et l'API à `127.0.0.1` uniquement, attend PostgreSQL
+avant de lancer Django et conserve PostgreSQL et les uploads dans des volumes
+Docker nommés. Les migrations sont une étape explicite, exécutée une fois avant
+le démarrage de l'application ; elles ne sont pas relancées au redémarrage de
+chaque conteneur. Les fichiers statiques sont collectés pendant la construction
+de l'image backend. `GUNICORN_WORKERS` permet de régler les workers, avec une
+valeur locale par défaut de 2.
+
+`docker compose down` conserve les volumes ; ne pas ajouter `-v` si les données
+locales doivent être gardées.
 
 Le fichier `deploy/docker.env.example` est réservé au développement. Ne pas
 réutiliser ses valeurs, `DJANGO_DEBUG=true` ou le serveur de développement en
-production. Le déploiement Docker en production doit fournir les mêmes secrets,
-origines HTTPS, PostgreSQL et stockage persistant que Render, et appliquer les
-migrations après sauvegarde et revue.
+production. Pour une installation Docker sur serveur :
+
+1. Construire les images avec `docker compose build`, puis démarrer uniquement
+   PostgreSQL avec `docker compose up -d db`.
+2. Effectuer et vérifier une sauvegarde de la base et des fichiers persistants.
+3. Exécuter `docker compose run --rm backend python manage.py migrate --noinput`
+   une seule fois après revue des migrations.
+4. Démarrer l'application derrière un reverse proxy HTTPS. Garder les ports
+   Docker liés à `127.0.0.1` lorsque le proxy tourne sur l'hôte ; si le proxy
+   tourne dans Docker, utiliser un réseau privé commun et ne pas publier les
+   ports applicatifs sur toutes les interfaces.
+5. Fournir des secrets forts, `DJANGO_DEBUG=false`, des hôtes et origines
+   explicites, PostgreSQL et un stockage persistant. Ne pas utiliser les valeurs
+   de l'exemple.
+
+Ne pas démarrer plusieurs réplicas Compose partageant la même base sans une
+étape de migration unique et un reverse proxy/load balancer approprié.
+Dimensionner `GUNICORN_WORKERS` après mesure de la mémoire par worker et de la
+charge ; la valeur `2` est seulement une valeur de départ, pas une recommandation
+de capacité pour la production.
 
 ## Vérifications avant mise en service
 
