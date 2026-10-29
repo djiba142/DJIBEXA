@@ -226,10 +226,10 @@ class PlatformTenantAdminInvitationView(APIView):
             f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
         )
         send_mail(
-            subject='Invitation administrateur NEXORA',
+            subject='Invitation administrateur DJIBEXA',
             message=(
                 f'Bonjour {user.get_full_name() or user.username},\n\n'
-                f'Vous êtes invité à administrer l’espace {tenant.name} sur NEXORA.\n'
+                f'Vous êtes invité à administrer l’espace {tenant.name} sur DJIBEXA.\n'
                 'Choisissez votre mot de passe avec ce lien sécurisé :\n'
                 f'{invitation_url}\n\n'
                 'Le lien est à usage unique et expire. Si vous ne vous attendiez pas '

@@ -79,7 +79,7 @@ class PlatformSettings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return 'NEXORA Platform Settings'
+        return 'DJIBEXA Platform Settings'
 
 
 class PlatformAuditLog(models.Model):

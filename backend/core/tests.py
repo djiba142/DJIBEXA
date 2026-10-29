@@ -138,12 +138,12 @@ class DjangoAdminBrandingTests(TestCase):
             'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
         },
     })
-    def test_admin_login_displays_nexora_branding_and_logo(self):
+    def test_admin_login_displays_djibexa_branding_and_logo(self):
         response = self.client.get('/admin/login/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'NEXORA')
-        self.assertContains(response, 'core/nexora-admin-logo.png')
+        self.assertContains(response, 'DJIBEXA')
+        self.assertContains(response, 'core/djibexa-admin-logo.svg')
         self.assertContains(response, 'core/admin.css')
 
 

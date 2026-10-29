@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" role="img" aria-labelledby="title">
+  <title id="title">DJIBEXA</title>
+  <defs>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#174ea6"/>
+      <stop offset="1" stop-color="#0b2c63"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="152" height="152" rx="34" fill="url(#blue)"/>
+  <path d="M38 103V57h17v20l19-20h21L73 82l24 21H75L55 85v18z" fill="#fff"/>
+  <path d="M111 58a26 26 0 1 0 0 52 26 26 0 0 0 0-52zm0 13a13 13 0 1 1 0 26 13 13 0 0 1 0-26z" fill="#f4b942" fill-rule="evenodd"/>
+  <text x="184" y="76" fill="#12233f" font-family="Arial, Helvetica, sans-serif" font-size="45" font-weight="800" letter-spacing="1">DJIBEXA</text>
+  <text x="187" y="119" fill="#315886" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="700" letter-spacing="9">AUTO PART</text>
+</svg>

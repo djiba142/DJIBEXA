@@ -332,7 +332,7 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'NEXORA API',
+    'TITLE': 'DJIBEXA API',
     'DESCRIPTION': 'API de gestion commerciale, stocks, achats et ventes.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,

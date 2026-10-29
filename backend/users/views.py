@@ -248,7 +248,7 @@ class PinResetRequestView(APIView):
                 f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
             )
             send_mail(
-                subject='Réinitialisation de votre mot de passe — NEXORA',
+                subject='Réinitialisation de votre mot de passe — DJIBEXA',
                 message=(
                     f'Bonjour {user.display_name},\n\n'
                     'Une demande de réinitialisation du mot de passe de votre compte a été reçue.\n'

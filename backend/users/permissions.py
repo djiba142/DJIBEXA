@@ -51,7 +51,7 @@ class IsTenantAssignedUser(BasePermission):
 class IsPlatformAdmin(BasePermission):
     """Restricts platform-control endpoints to explicitly designated accounts."""
 
-    message = 'Accès réservé à l’administration centrale NEXORA.'
+    message = 'Accès réservé à l’administration centrale DJIBEXA.'
 
     def has_permission(self, request, view):
         return bool(

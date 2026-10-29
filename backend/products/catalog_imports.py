@@ -133,7 +133,7 @@ def preview_import(import_record, user=None):
     mapping = import_record.column_mapping
     used_fields = [field for field in mapping.values() if field]
     if len(used_fields) != len(set(used_fields)):
-        raise ValidationError({'mapping': 'Chaque champ NEXORA ne peut être associé qu’à une colonne.'})
+        raise ValidationError({'mapping': 'Chaque champ DJIBEXA ne peut être associé qu’à une colonne.'})
     if any(field not in IMPORT_FIELDS for field in used_fields):
         raise ValidationError({'mapping': 'Le fichier contient une correspondance non autorisée.'})
 
@@ -267,7 +267,7 @@ class ProductCatalogImportTemplateView(APIView):
             'reference,manufacturer_reference,alternative_references,name,category,brand,vehicle,description,unit,package_unit,units_per_package,purchase_price,cost_price,selling_price,alert_threshold\r\n',
             content_type='text/csv; charset=utf-8',
         )
-        response['Content-Disposition'] = 'attachment; filename="modele-produits-nexora.csv"'
+        response['Content-Disposition'] = 'attachment; filename="modele-produits-djibexa.csv"'
         return response
 
 

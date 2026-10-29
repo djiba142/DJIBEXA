@@ -399,7 +399,7 @@ def parse_receipt_import(uploaded_file, order, default_location, locations):
                 order_line = next(item for item in order_items if item.product_id == product.pk)
                 if ordered_quantity != order_line.quantity:
                     row_errors.append(
-                        f'Ligne {row_index} : quantité commandée différente de la commande NEXORA.'
+                        f'Ligne {row_index} : quantité commandée différente de la commande DJIBEXA.'
                     )
 
         quarantined = 0

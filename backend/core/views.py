@@ -274,7 +274,7 @@ class CompanyView(generics.RetrieveUpdateAPIView):
         tenant = tenant_for_user(self.request.user)
         company, _ = Company.objects.get_or_create(
             tenant=tenant,
-            defaults={'name': tenant.name or 'NEXORA'},
+            defaults={'name': tenant.name or 'DJIBEXA'},
         )
         return company
 

@@ -177,7 +177,7 @@ class StockFileImportTemplateView(APIView):
             'reference,physical_quantity,location\r\n',
             content_type='text/csv; charset=utf-8',
         )
-        response['Content-Disposition'] = 'attachment; filename="modele-stock-nexora.csv"'
+        response['Content-Disposition'] = 'attachment; filename="modele-stock-djibexa.csv"'
         return response
 
 

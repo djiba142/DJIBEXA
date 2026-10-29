@@ -22,7 +22,7 @@ def _company_identity(customer):
     company = Company.objects.filter(tenant_id=customer.tenant_id).first()
     tenant_name = customer.tenant.name if customer.tenant_id else ''
     return (
-        company.name if company and company.name else tenant_name or 'NEXORA',
+        company.name if company and company.name else tenant_name or 'DJIBEXA',
         company.currency if company and company.currency else 'GNF',
     )
 
