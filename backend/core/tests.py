@@ -1042,7 +1042,8 @@ class CoreApiTests(TestCase):
 
     def test_platform_migration_preserves_existing_company_tenant_assignment(self):
         Tenant.objects.all().delete()
-        company = Company.objects.create(name='Entreprise historique')
+        Company.objects.all().delete()
+        company = Company.objects.create(pk=1, name='Entreprise historique')
         migration = import_module(
             'core.migrations.0006_platformsettings_tenant_company_tenant',
         )
