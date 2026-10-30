@@ -5,6 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements-render.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 120 --retries 10 --no-warn-script-location -r requirements-render.txt
