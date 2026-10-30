@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" role="img" aria-labelledby="title">
+  <title id="title">DJIBEXA</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#102f63"/>
+      <stop offset="1" stop-color="#071a38"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6f8fb"/>
+      <stop offset="1" stop-color="#aab6c7"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020817" flood-opacity=".42"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="660" rx="34" fill="url(#bg)"/>
+  <circle cx="1020" cy="95" r="240" fill="#2a5ca3" opacity=".22"/>
+  <circle cx="180" cy="590" r="280" fill="#3672bd" opacity=".15"/>
+  <path d="M0 492c175-56 318-44 470 9s310 45 730-53v212H0z" fill="#07152d" opacity=".62"/>
+  <g filter="url(#shadow)">
+    <g transform="translate(130 176)">
+      <circle cx="190" cy="178" r="144" fill="#111a28" stroke="#53647b" stroke-width="18"/>
+      <circle cx="190" cy="178" r="92" fill="url(#metal)" stroke="#73839a" stroke-width="12"/>
+      <circle cx="190" cy="178" r="49" fill="#244a7f"/>
+      <circle cx="190" cy="178" r="18" fill="#e7edf4"/>
+      <g fill="#315886">
+        <circle cx="190" cy="106" r="9"/><circle cx="252" cy="142" r="9"/>
+        <circle cx="252" cy="214" r="9"/><circle cx="190" cy="250" r="9"/>
+        <circle cx="128" cy="214" r="9"/><circle cx="128" cy="142" r="9"/>
+      </g>
+    </g>
+    <g transform="translate(520 177)">
+      <path d="M50 55h202l26 65v186H24V120z" fill="#e7edf4" stroke="#aab6c7" stroke-width="12"/>
+      <path d="M50 55h202l26 65H24z" fill="#d3373f"/>
+      <rect x="69" y="146" width="162" height="105" rx="12" fill="#142a49"/>
+      <path d="M95 166h110v65H95z" fill="#e8eef7"/>
+      <path d="M110 181h80M110 198h80M110 215h55" stroke="#8a9bb1" stroke-width="8" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(850 268) rotate(-12)">
+      <path d="M23 0h150a23 23 0 0 1 23 23v145H0V23A23 23 0 0 1 23 0z" fill="#d23b43"/>
+      <path d="M34 37h128v109H34z" fill="#f1f4f8"/>
+      <path d="M57 57h82M57 77h82M57 97h82M57 117h57" stroke="#9caabd" stroke-width="9" stroke-linecap="round"/>
+      <path d="M56 0v-28h82V0" fill="none" stroke="#f4b942" stroke-width="14" stroke-linecap="round"/>
+    </g>
+  </g>
+  <g fill="#fff" font-family="Arial, Helvetica, sans-serif">
+    <text x="72" y="92" font-size="22" font-weight="700" letter-spacing="5" opacity=".72">DJIBEXA</text>
+  </g>
+  <path d="M73 128h90" stroke="#f4b942" stroke-width="7" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,89 @@
+services:
+  - type: web
+    name: nexora-api
+    runtime: python
+    plan: starter
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install -r requirements-render.txt && python manage.py collectstatic --noinput
+    preDeployCommand: python manage.py migrate --noinput
+    startCommand: gunicorn nexora_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    healthCheckPath: /healthz/
+    autoDeploy: false
+    disk:
+      name: nexora-private-files
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.8
+      - key: DJANGO_ENV
+        value: production
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: nexora-api.onrender.com
+      - key: DJANGO_TRUST_X_FORWARDED_PROTO
+        value: "true"
+      - key: DJANGO_CROSS_SITE_COOKIES
+        value: "true"
+      - key: DB_ENGINE
+        value: postgresql
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexora-db
+          property: connectionString
+      - key: FRONTEND_BASE_URL
+        value: https://nexora-web.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://nexora-web.onrender.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://nexora-web.onrender.com
+      - key: MEDIA_ROOT
+        value: /var/data/media
+      - key: PRIVATE_INVOICE_ROOT
+        value: /var/data/private-invoices
+      - key: PRIVATE_STOREFRONT_ROOT
+        value: /var/data/private-storefronts
+      - key: PRIVATE_SUPPLIER_IMPORT_ROOT
+        value: /var/data/private-supplier-imports
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.smtp.EmailBackend
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: EMAIL_USE_TLS
+        value: "true"
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+
+  - type: web
+    name: nexora-web
+    runtime: node
+    plan: starter
+    region: frankfurt
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: VITE_API_BASE_URL
+        value: https://nexora-api.onrender.com/api/v1
+
+databases:
+  - name: nexora-db
+    databaseName: nexora
+    user: nexora
+    plan: basic-1gb
+    region: frankfurt
+    postgresMajorVersion: "16"

@@ -1,0 +1,10 @@
+.git
+.lovable
+.tanstack
+node_modules
+dist
+.output
+.env
+.env.*
+!.env.example
+.npmrc

@@ -1,0 +1,35 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Django/local data
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
+backend/expense_justifications/
+backend/private_supplier_imports/
+backend/private_invoices/
+backend/private_storefronts/
+expense_justifications/
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Frontend/dependency caches
+node_modules/
+
+# Editor and OS files
+.vscode/
+.vs/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Removed template asset
+adminhmd-1.0.0/assets/images/png/dasher-ui-bootstrap-5.jpg

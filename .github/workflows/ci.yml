@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository and frontend
+        uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: frontend/.node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: djibexa_test
+          POSTGRES_USER: djibexa
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U djibexa -d djibexa_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DJANGO_ENV: development
+      DJANGO_DEBUG: "true"
+      DJANGO_SECRET_KEY: ci-only-not-a-production-secret-key-0123456789-abcdefghijk
+      DB_ENGINE: postgresql
+      DB_NAME: djibexa_test
+      DB_USER: djibexa
+      DB_PASSWORD: ci-only-password
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version-file: backend/.python-version
+          cache: pip
+          cache-dependency-path: backend/requirements-render.txt
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements-render.txt
+
+      - name: Audit backend dependencies
+        run: |
+          python -m pip install pip-audit==2.9.0
+          pip-audit -r backend/requirements-render.txt
+
+      - name: Check Django configuration
+        working-directory: backend
+        run: python manage.py check
+
+      - name: Check migrations
+        working-directory: backend
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run backend tests against PostgreSQL
+        working-directory: backend
+        run: python manage.py test --verbosity 2
+
+  docker:
+    name: Docker build and image scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [frontend, backend]
+    steps:
+      - name: Checkout repository and frontend
+        uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Prepare local Compose environment
+        run: cp .env.example .env
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Scan Docker configuration
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+
+      - name: Build application images
+        run: docker compose --parallel 1 build --pull backend frontend
+
+      - name: Tag backend image for scanning
+        run: docker image tag "$(docker compose images -q backend)" djibexa-backend:ci
+
+      - name: Tag frontend image for scanning
+        run: docker image tag "$(docker compose images -q frontend)" djibexa-frontend:ci
+
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: djibexa-backend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: djibexa-frontend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          scanners: vuln,secret
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
