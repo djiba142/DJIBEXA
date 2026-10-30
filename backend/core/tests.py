@@ -63,6 +63,8 @@ class ProductionSettingsTests(SimpleTestCase):
             'DB_USER': 'test_only',
             'DB_PASSWORD': 'not-a-real-password',
             'EMAIL_BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+            'CORS_ALLOWED_ORIGINS': 'https://app.example.test',
+            'CSRF_TRUSTED_ORIGINS': 'https://app.example.test',
         })
         env.update(overrides)
         return subprocess.run(

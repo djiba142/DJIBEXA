@@ -942,7 +942,7 @@ class SaleReturnSerializer(serializers.ModelSerializer):
         )
 
         for submitted_item in validated_data['items']:
-            sale_item = SaleItem.objects.select_for_update().select_related('product').get(
+            sale_item = SaleItem.objects.select_for_update(of=('self',)).select_related('product').get(
                 pk=submitted_item['sale_item'].pk,
             )
             quantity = submitted_item['quantity']
