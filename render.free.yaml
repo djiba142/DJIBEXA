@@ -18,7 +18,7 @@ services:
       - key: DJANGO_DEBUG
         value: "false"
       - key: DJANGO_SECRET_KEY
-        generateValue: true
+        sync: false
       - key: DJANGO_ALLOWED_HOSTS
         value: djibexa-api.onrender.com
       - key: DJANGO_TRUST_X_FORWARDED_PROTO
