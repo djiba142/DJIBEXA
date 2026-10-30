@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from rest_framework.test import APIClient
 from pypdf import PdfReader
 from django.utils import timezone
@@ -741,7 +741,7 @@ class InvoiceApiTests(TestCase):
         self.assertNotIn('Pièce 003', page_text)
 
 
-class InvoiceTenantIsolationTests(TestCase):
+class InvoiceTenantIsolationTests(TransactionTestCase):
     def setUp(self):
         self.tenant_a = Tenant.objects.create(slug='invoice-tenant-a', name='Factures A')
         self.tenant_b = Tenant.objects.create(slug='invoice-tenant-b', name='Factures B')
