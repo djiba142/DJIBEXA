@@ -8,9 +8,13 @@ PLATFORM_ADMIN_API_PREFIXES = (
     '/api/v1/platform/',
 )
 PLATFORM_ADMIN_AUTH_PATHS = {
+    '/api/users/csrf/',
+    '/api/users/change-password/',
     '/api/users/login/',
     '/api/users/logout/',
     '/api/users/me/',
+    '/api/v1/users/csrf/',
+    '/api/v1/users/change-password/',
     '/api/v1/users/login/',
     '/api/v1/users/logout/',
     '/api/v1/users/me/',
