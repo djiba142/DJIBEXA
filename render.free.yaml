@@ -1,0 +1,55 @@
+# Free preview only. Do not use for live business data.
+services:
+  - type: web
+    name: djibexa-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install -r requirements-render.txt && python manage.py collectstatic --noinput
+    startCommand: python manage.py migrate --noinput && gunicorn nexora_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    healthCheckPath: /healthz/
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.8
+      - key: DJANGO_ENV
+        value: production
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: DJANGO_ALLOWED_HOSTS
+        value: djibexa-api.onrender.com
+      - key: DJANGO_TRUST_X_FORWARDED_PROTO
+        value: "true"
+      - key: DJANGO_CROSS_SITE_COOKIES
+        value: "true"
+      - key: DB_ENGINE
+        value: postgresql
+      - key: DATABASE_URL
+        fromDatabase:
+          name: djibexa-db
+          property: connectionString
+      - key: FRONTEND_BASE_URL
+        value: https://djibexa-web.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://djibexa-web.onrender.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://djibexa-web.onrender.com
+
+  - type: web
+    name: djibexa-web
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: VITE_API_BASE_URL
+        value: https://djibexa-api.onrender.com/api/v1
