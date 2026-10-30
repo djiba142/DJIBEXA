@@ -137,16 +137,10 @@ jobs:
       - name: Build application images
         run: docker compose --parallel 1 build --pull backend frontend
 
-      - name: Tag backend image for scanning
-        run: docker image tag "$(docker compose images -q backend)" djibexa-backend:ci
-
-      - name: Tag frontend image for scanning
-        run: docker image tag "$(docker compose images -q frontend)" djibexa-frontend:ci
-
       - name: Scan backend image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: djibexa-backend:ci
+          image-ref: djibexa-backend:latest
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -157,7 +151,7 @@ jobs:
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: djibexa-frontend:ci
+          image-ref: djibexa-frontend:latest
           format: table
           exit-code: "1"
           ignore-unfixed: true

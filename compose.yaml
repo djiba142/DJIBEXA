@@ -13,6 +13,7 @@ services:
       retries: 12
 
   backend:
+    image: djibexa-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -52,6 +53,7 @@ services:
       start_period: 60s
 
   frontend:
+    image: djibexa-frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
