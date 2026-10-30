@@ -573,6 +573,7 @@ class AuthLoginTests(TestCase):
             is_superuser=True,
             is_staff=True,
             additional_roles=['sales', 'stock'],
+            must_change_password=True,
         )
         self.assertEqual(platform_admin.roles, [])
         self.assertFalse(platform_admin.has_any_role('admin', 'sales', 'stock'))
@@ -581,6 +582,19 @@ class AuthLoginTests(TestCase):
             username='platform_admin',
             password='secret123',
         ))
+
+        csrf_response = self.client.get('/api/v1/users/csrf/')
+        self.assertEqual(csrf_response.status_code, 200, csrf_response.content)
+        password_response = self.client.post(
+            '/api/v1/users/change-password/',
+            {
+                'current_password': 'secret123',
+                'new_password': 'A-new-secure-password-2026',
+            },
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf_response.json()['csrfToken'],
+        )
+        self.assertEqual(password_response.status_code, 200, password_response.data)
 
         self.assertEqual(self.client.get('/api/products/').status_code, 403)
         self.assertEqual(self.client.get('/api/users/me/').status_code, 200)
