@@ -655,11 +655,15 @@ class CoreApiTests(TestCase):
         )
 
         self.assertEqual(first.status_code, 201, first.data)
+        self.assertFalse(first.data['emailSent'])
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(duplicate_identity.status_code, 400)
         self.assertEqual(User.objects.filter(tenant=tenant).count(), 1)
         self.assertFalse(User.objects.filter(tenant=second_tenant).exists())
-        self.assertEqual(len(mail.outbox), 1)
+        invited_admin = User.objects.get(tenant=tenant)
+        self.assertFalse(invited_admin.is_active)
+        self.assertTrue(invited_admin.invitation_pending)
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_platform_admin_can_invite_first_admin_after_tenant_activation(self):
         platform_admin = User.objects.create_user(
