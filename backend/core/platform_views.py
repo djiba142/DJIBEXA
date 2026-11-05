@@ -135,6 +135,7 @@ def activate_pending_tenant_admins(tenant):
             'invitation_pending',
             'updated_at',
         ])
+        send_password_setup_email(invited_admin, tenant)
 
 
 class PlatformTenantCreateView(APIView):
@@ -243,6 +244,7 @@ class PlatformTenantAdminInvitationView(APIView):
                 'detail': 'La limite globale d’utilisateurs actifs est atteinte.',
             })
 
+        is_active = tenant.status_at() == 'active'
         user = User(
             username=serializer.validated_data['username'],
             email=serializer.validated_data['email'],
@@ -250,11 +252,14 @@ class PlatformTenantAdminInvitationView(APIView):
             last_name=serializer.validated_data.get('last_name', ''),
             role='admin',
             tenant=tenant,
-            is_active=tenant.status_at() == 'active',
-            invitation_pending=tenant.status_at() != 'active',
+            is_active=is_active,
+            invitation_pending=not is_active,
         )
+        user.set_unusable_password()
+        user.must_change_password = True
         user.save()
-        send_password_setup_email(user, tenant)
+        if is_active:
+            send_password_setup_email(user, tenant)
         PlatformAuditLog.objects.create(
             actor=request.user,
             tenant=tenant,
@@ -262,7 +267,7 @@ class PlatformTenantAdminInvitationView(APIView):
             details={'role': 'admin'},
         )
         return Response(
-            {'invited': True},
+            {'invited': True, 'emailSent': is_active},
             status=status.HTTP_201_CREATED,
         )
 

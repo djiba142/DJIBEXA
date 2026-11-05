@@ -14,6 +14,7 @@ def send_password_setup_email(user, tenant):
 
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
+    validity_hours = max(1, (settings.PASSWORD_RESET_TIMEOUT + 3599) // 3600)
     setup_url = (
         f'{settings.FRONTEND_BASE_URL.rstrip("/")}/reset-password'
         f'?uid={uid}&token={token}&purpose=invitation'
@@ -22,10 +23,10 @@ def send_password_setup_email(user, tenant):
         subject='Votre invitation DJIBEXA — choisissez votre mot de passe',
         message=(
             f'Bonjour {user.get_full_name() or user.username},\n\n'
-            f'Votre compte administrateur pour l’espace {tenant.name} a été créé.\n'
+            f'Votre espace {tenant.name} est activé. Votre compte administrateur est prêt.\n'
             f'Votre identifiant est : {user.username}\n\n'
             'Cliquez sur le bouton ci-dessous pour choisir votre mot de passe. '
-            'Ce lien est personnel, à usage unique et à durée limitée.\n\n'
+            f'Ce lien est personnel, à usage unique et expire sous {validity_hours} heures.\n\n'
             f'Si le bouton ne fonctionne pas, copiez ce lien :\n{setup_url}\n\n'
             f'Si le lien a expiré, ouvrez {settings.FRONTEND_BASE_URL.rstrip("/")}/auth '
             'et utilisez « Mot de passe oublié ? » pour en recevoir un nouveau.\n\n'

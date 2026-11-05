@@ -5,7 +5,6 @@ from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import activate, get_language
 from django.utils.encoding import force_bytes
@@ -286,8 +285,9 @@ class PinResetRequestView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = PinResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = User.objects.filter(email__iexact=serializer.validated_data['email']).filter(
-            Q(is_active=True) | Q(invitation_pending=True, tenant__isnull=False)
+        user = User.objects.filter(
+            email__iexact=serializer.validated_data['email'],
+            is_active=True,
         ).first()
         response_data = {
             'success': True,

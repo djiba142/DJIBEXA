@@ -137,7 +137,7 @@ const PLATFORM_COPY = {
       "L’espace reste en attente jusqu’au démarrage de l’essai. Vous pouvez inviter son premier administrateur depuis sa fiche.",
     adminInvitation: "Inviter le premier administrateur",
     adminInvitationDescription:
-      "Un lien sécurisé, à usage unique et à durée limitée sera envoyé pour choisir un mot de passe. En cas d’expiration, le destinataire pourra en demander un nouveau depuis « Mot de passe oublié ? ». L’accès dépend de l’activation de l’espace.",
+      "Un lien sécurisé, à usage unique et à durée limitée sera envoyé pour choisir un mot de passe. Si l’espace n’est pas encore actif, l’e-mail partira automatiquement à son activation. En cas d’expiration, le destinataire pourra en demander un nouveau depuis « Mot de passe oublié ? ».",
     adminUsername: "Nom d’utilisateur",
     adminEmail: "Adresse e-mail",
     adminFirstName: "Prénom",
@@ -146,6 +146,8 @@ const PLATFORM_COPY = {
     sendingInvitation: "Envoi…",
     invitationSent:
       "Invitation envoyée. L’administrateur pourra choisir son mot de passe depuis le lien reçu.",
+    invitationQueued:
+      "Invitation enregistrée. Le lien de configuration sera envoyé automatiquement à l’activation de l’espace.",
     adminAlreadyExists: "Un compte existe déjà dans cet espace.",
     activate: "Démarrer l’essai",
     suspend: "Suspendre l’accès",
@@ -231,7 +233,7 @@ const PLATFORM_COPY = {
       "The space remains pending until its trial starts. Invite its first administrator from its card.",
     adminInvitation: "Invite the first administrator",
     adminInvitationDescription:
-      "A secure, single-use, time-limited link will be emailed so the administrator can choose a password. If it expires, they can request another using “Forgot password?”. Access depends on the space being active.",
+      "A secure, single-use, time-limited link will be emailed so the administrator can choose a password. If the space is not active yet, the email will be sent automatically when it is activated. If the link expires, they can request another using “Forgot password?”.",
     adminUsername: "Username",
     adminEmail: "Email address",
     adminFirstName: "First name",
@@ -240,6 +242,8 @@ const PLATFORM_COPY = {
     sendingInvitation: "Sending…",
     invitationSent:
       "Invitation sent. The administrator can choose a password using the emailed link.",
+    invitationQueued:
+      "Invitation recorded. The password setup link will be sent automatically when the space is activated.",
     adminAlreadyExists: "An account already exists in this space.",
     activate: "Start trial",
     suspend: "Suspend access",
@@ -324,7 +328,7 @@ const PLATFORM_COPY = {
     creationNote: "ستبقى المساحة معلّقة حتى بدء التجربة. يمكنك دعوة مديرها الأول من بطاقة المساحة.",
     adminInvitation: "دعوة المدير الأول",
     adminInvitationDescription:
-      "سيُرسل رابط آمن لإعداد كلمة المرور. يظل الوصول محظورًا حتى تفعيل المساحة.",
+      "سيُرسل رابط آمن لمرة واحدة لإعداد كلمة المرور عند تفعيل المساحة، أو فورًا إذا كانت نشطة.",
     adminUsername: "اسم المستخدم",
     adminEmail: "البريد الإلكتروني",
     adminFirstName: "الاسم الأول",
@@ -332,6 +336,7 @@ const PLATFORM_COPY = {
     sendInvitation: "إرسال الدعوة",
     sendingInvitation: "جارٍ الإرسال…",
     invitationSent: "تم إرسال الدعوة. رابط إعداد كلمة المرور للاستخدام مرة واحدة.",
+    invitationQueued: "تم تسجيل الدعوة. سيُرسل رابط إعداد كلمة المرور تلقائيًا عند تفعيل المساحة.",
     adminAlreadyExists: "يوجد حساب بالفعل في هذه المساحة.",
     activate: "بدء التجربة",
     suspend: "تعليق الوصول",
@@ -412,7 +417,8 @@ const PLATFORM_COPY = {
     creating: "正在创建…",
     creationNote: "空间将在试用开始前保持待启用状态。可从空间卡片邀请首位管理员。",
     adminInvitation: "邀请首位管理员",
-    adminInvitationDescription: "将发送安全的密码设置链接；空间启用前无法登录。",
+    adminInvitationDescription:
+      "将发送一次性安全密码设置链接；如果空间尚未启用，将在启用时自动发送。",
     adminUsername: "用户名",
     adminEmail: "电子邮箱",
     adminFirstName: "名",
@@ -420,6 +426,7 @@ const PLATFORM_COPY = {
     sendInvitation: "发送邀请",
     sendingInvitation: "正在发送…",
     invitationSent: "邀请已发送。密码设置链接仅可使用一次。",
+    invitationQueued: "邀请已登记。空间启用时将自动发送密码设置链接。",
     adminAlreadyExists: "此空间中已存在账户。",
     activate: "开始试用",
     suspend: "暂停访问",
@@ -599,14 +606,17 @@ function PlatformOverviewPage() {
       firstName: string;
       lastName: string;
     }) =>
-      api.post(`platform/tenants/${id}/admin-invitation/`, {
-        username,
-        email,
-        first_name: firstName,
-        last_name: lastName,
-      }),
-    onSuccess: async () => {
-      toast.success(copy.invitationSent);
+      api.post<{ invited: boolean; emailSent: boolean }>(
+        `platform/tenants/${id}/admin-invitation/`,
+        {
+          username,
+          email,
+          first_name: firstName,
+          last_name: lastName,
+        },
+      ),
+    onSuccess: async (result) => {
+      toast.success(result.emailSent ? copy.invitationSent : copy.invitationQueued);
       await refreshPlatformData();
     },
     onError: (error: Error) => toast.error(copy.actionError, { description: error.message }),

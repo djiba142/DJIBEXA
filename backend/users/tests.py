@@ -298,17 +298,19 @@ class AuthLoginTests(TestCase):
         self.assertEqual(known_response.status_code, unknown_response.status_code)
         self.assertEqual(known_response.data, unknown_response.data)
 
-    def test_pending_invitation_can_request_a_new_password_setup_link(self):
+    def test_activated_admin_can_request_another_password_setup_link(self):
         invited_user = User.objects.create_user(
-            username='pending_reset_invitation',
-            email='pending.reset.invitation@example.com',
+            username='activated_reset_invitation',
+            email='activated.reset.invitation@example.com',
             password='TemporaryPassword!2026',
             role='admin',
             tenant=self.tenant,
-            is_active=False,
-            invitation_pending=True,
+            is_active=True,
+            invitation_pending=False,
             must_change_password=True,
         )
+        invited_user.set_unusable_password()
+        invited_user.save(update_fields=['password'])
 
         response = self.client.post(
             '/api/v1/users/pin-reset/request/',
@@ -320,8 +322,8 @@ class AuthLoginTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         invitation_email = mail.outbox[0]
         invited_user.refresh_from_db()
-        self.assertIn('purpose=invitation', invitation_email.body)
-        self.assertIn('Choisir mon mot de passe', invitation_email.alternatives[0][0])
+        self.assertIn('/reset-password?uid=', invitation_email.body)
+        self.assertIn('Choisir un nouveau mot de passe', invitation_email.alternatives[0][0])
         self.assertFalse(invited_user.has_usable_password())
         blocked_login = self.client.post(
             '/api/v1/users/login/',
