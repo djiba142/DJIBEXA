@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 from users.permissions import IsPlatformAdmin
 from users.models import User
 
-from .onboarding import send_temporary_password_email
+from .onboarding import send_password_setup_email
 from .models import PlatformAuditLog, PlatformSettings, PlatformTaskRun, Tenant
 from .pagination import VersionedApiPagination
 
@@ -254,7 +254,7 @@ class PlatformTenantAdminInvitationView(APIView):
             invitation_pending=tenant.status_at() != 'active',
         )
         user.save()
-        send_temporary_password_email(user, tenant)
+        send_password_setup_email(user, tenant)
         PlatformAuditLog.objects.create(
             actor=request.user,
             tenant=tenant,

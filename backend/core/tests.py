@@ -148,6 +148,21 @@ class BrandedEmailTests(SimpleTestCase):
         self.assertIn('https://erp.example.test/brand/kourouma-logo.svg', html_message)
         self.assertIn('&lt;script&gt;', html_message)
 
+    def test_email_action_is_a_safe_html_link_and_remains_in_plain_text(self):
+        action_url = 'https://erp.example.test/reset-password?uid=1&token=token'
+        email = create_branded_email(
+            subject='Invitation DJIBEXA',
+            message=f'Utilisez ce lien :\n{action_url}',
+            recipient_list=['user@example.test'],
+            action_url=action_url,
+            action_label='Choisir mon mot de passe',
+        )
+
+        html_message, _ = email.alternatives[0]
+        self.assertIn('href="https://erp.example.test/reset-password?uid=1&amp;token=token"', html_message)
+        self.assertIn('Choisir mon mot de passe', html_message)
+        self.assertIn(action_url, email.body)
+
 
 class DevelopmentCorsSettingsTests(SimpleTestCase):
     def test_default_settings_allow_tanstack_local_origins(self):
@@ -678,21 +693,38 @@ class CoreApiTests(TestCase):
         self.assertTrue(invited_user.is_active)
         self.assertFalse(invited_user.invitation_pending)
         self.assertTrue(invited_user.must_change_password)
-        temporary_password_line = next(
+        self.assertFalse(invited_user.has_usable_password())
+        self.assertIn('purpose=invitation', mail.outbox[0].body)
+        self.assertNotIn('mot de passe provisoire', mail.outbox[0].body.lower())
+        self.assertIn('Choisir mon mot de passe', mail.outbox[0].alternatives[0][0])
+        setup_url = next(
             line for line in mail.outbox[0].body.splitlines()
-            if line.startswith('Votre mot de passe provisoire est : ')
+            if '/reset-password?uid=' in line
         )
+        token = setup_url.split('&token=', 1)[1].split('&', 1)[0]
         self.client.force_authenticate(user=None)
         login_response = self.client.post(
             '/api/v1/users/login/',
             {
                 'identifier': invited_user.username,
-                'password': temporary_password_line.split(': ', 1)[1],
+                'password': 'TemporaryPassword!2026',
             },
             format='json',
         )
-        self.assertEqual(login_response.status_code, 200, login_response.data)
-        self.assertTrue(login_response.data['user']['must_change_password'])
+        self.assertEqual(login_response.status_code, 401, login_response.data)
+        password_setup = self.client.post(
+            '/api/v1/users/pin-reset/confirm/',
+            {
+                'uid': urlsafe_base64_encode(force_bytes(invited_user.pk)),
+                'token': token,
+                'password': 'ChosenPassword!2026',
+            },
+            format='json',
+        )
+        self.assertEqual(password_setup.status_code, 200, password_setup.data)
+        invited_user.refresh_from_db()
+        self.assertTrue(invited_user.check_password('ChosenPassword!2026'))
+        self.assertFalse(invited_user.must_change_password)
 
     def test_platform_admin_invitation_rolls_back_when_email_cannot_be_sent(self):
         platform_admin = User.objects.create_user(
@@ -707,7 +739,7 @@ class CoreApiTests(TestCase):
         self.client.force_authenticate(user=platform_admin)
 
         with patch(
-            'core.platform_views.send_temporary_password_email',
+            'core.platform_views.send_password_setup_email',
             side_effect=RuntimeError('SMTP unavailable'),
         ):
             with self.assertRaises(RuntimeError):

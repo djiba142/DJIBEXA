@@ -1314,6 +1314,9 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.documentTitle": "Connexion — ERP DJIBEXA",
     "auth.resetDocumentTitle": "Nouveau mot de passe — DJIBEXA",
     "auth.resetMetaDescription": "Choisissez un nouveau mot de passe pour votre compte ERP.",
+    "auth.invitationPasswordTitle": "Définir votre mot de passe",
+    "auth.invitationPasswordDescription":
+      "Choisissez un mot de passe personnel pour activer votre compte administrateur.",
     "auth.metaDescription":
       "Accès sécurisé à l'ERP de gestion commerciale de DJIBEXA : ventes, stock, produits et clients.",
     "auth.brandDescription":
@@ -1327,7 +1330,7 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.sending": "Envoi en cours…",
     "auth.sendLink": "Envoyer le lien",
     "auth.resetSent":
-      "Si cette adresse correspond à un compte actif, un lien de réinitialisation a été envoyé.",
+      "Si cette adresse correspond à un compte ou à une invitation en attente, un lien a été envoyé.",
     "auth.backToLogin": "Retour à la connexion",
     "auth.workspace": "Espace de gestion",
     "auth.loginDescription": "Connectez-vous pour accéder à l'ERP.",
@@ -3256,6 +3259,9 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.documentTitle": "Sign in — DJIBEXA ERP",
     "auth.resetDocumentTitle": "Set a new password — DJIBEXA",
     "auth.resetMetaDescription": "Choose a new password for your ERP account.",
+    "auth.invitationPasswordTitle": "Set your password",
+    "auth.invitationPasswordDescription":
+      "Choose a personal password to activate your administrator account.",
     "auth.metaDescription":
       "Secure access to the DJIBEXA business management ERP for sales, stock, products, and customers.",
     "auth.brandDescription":
@@ -3268,7 +3274,8 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.emailAddress": "Email address",
     "auth.sending": "Sending…",
     "auth.sendLink": "Send reset link",
-    "auth.resetSent": "If this address belongs to an active account, a reset link has been sent.",
+    "auth.resetSent":
+      "If this address belongs to an account or a pending invitation, a link has been sent.",
     "auth.backToLogin": "Back to sign in",
     "auth.workspace": "Management portal",
     "auth.loginDescription": "Sign in to access the ERP.",
@@ -5136,6 +5143,8 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.documentTitle": "تسجيل الدخول — نظام DJIBEXA",
     "auth.resetDocumentTitle": "تعيين كلمة مرور جديدة — DJIBEXA",
     "auth.resetMetaDescription": "اختر كلمة مرور جديدة لحسابك في النظام.",
+    "auth.invitationPasswordTitle": "أنشئ كلمة المرور",
+    "auth.invitationPasswordDescription": "اختر كلمة مرور شخصية لتفعيل حسابك كمدير.",
     "auth.metaDescription": "دخول آمن إلى نظام إدارة DJIBEXA للمبيعات والمخزون والمنتجات والعملاء.",
     "auth.brandDescription":
       "قطع غيار أصلية في مادينا، كوناكري. إدارة المبيعات والمخزون والعملاء في الوقت الفعلي.",
@@ -5147,7 +5156,7 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.emailAddress": "عنوان البريد الإلكتروني",
     "auth.sending": "جارٍ الإرسال…",
     "auth.sendLink": "إرسال رابط إعادة التعيين",
-    "auth.resetSent": "إذا كان هذا العنوان لحساب نشط، فقد أُرسل رابط إعادة التعيين.",
+    "auth.resetSent": "إذا كان هذا العنوان لحساب أو دعوة معلّقة، فقد أُرسل رابط.",
     "auth.backToLogin": "العودة إلى تسجيل الدخول",
     "auth.workspace": "بوابة الإدارة",
     "auth.loginDescription": "سجل الدخول للوصول إلى نظام الإدارة.",
@@ -6942,6 +6951,8 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.documentTitle": "登录 — DJIBEXA 管理系统",
     "auth.resetDocumentTitle": "设置新密码 — DJIBEXA",
     "auth.resetMetaDescription": "为您的管理系统账户设置新密码。",
+    "auth.invitationPasswordTitle": "设置您的密码",
+    "auth.invitationPasswordDescription": "设置个人密码以启用您的管理员账户。",
     "auth.metaDescription": "安全访问 DJIBEXA 销售、库存、产品和客户管理系统。",
     "auth.brandDescription": "科纳克里马迪纳的原装汽车零件。实时管理销售、库存和客户。",
     "auth.backToShowroom": "返回店铺",
@@ -6951,7 +6962,7 @@ const translations: Record<Language, Record<string, string>> = {
     "auth.emailAddress": "电子邮箱地址",
     "auth.sending": "正在发送…",
     "auth.sendLink": "发送重置链接",
-    "auth.resetSent": "如果该邮箱属于有效账户，重置链接已发送。",
+    "auth.resetSent": "如果该邮箱关联账户或待处理邀请，链接已发送。",
     "auth.backToLogin": "返回登录",
     "auth.workspace": "管理门户",
     "auth.loginDescription": "登录以访问管理系统。",

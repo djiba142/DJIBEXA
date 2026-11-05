@@ -137,7 +137,7 @@ const PLATFORM_COPY = {
       "L’espace reste en attente jusqu’au démarrage de l’essai. Vous pouvez inviter son premier administrateur depuis sa fiche.",
     adminInvitation: "Inviter le premier administrateur",
     adminInvitationDescription:
-      "Un mot de passe provisoire sera envoyé par e-mail et devra être changé à la première connexion. L’accès dépend de l’activation de l’espace.",
+      "Un lien sécurisé, à usage unique et à durée limitée sera envoyé pour choisir un mot de passe. En cas d’expiration, le destinataire pourra en demander un nouveau depuis « Mot de passe oublié ? ». L’accès dépend de l’activation de l’espace.",
     adminUsername: "Nom d’utilisateur",
     adminEmail: "Adresse e-mail",
     adminFirstName: "Prénom",
@@ -145,7 +145,7 @@ const PLATFORM_COPY = {
     sendInvitation: "Envoyer l’invitation",
     sendingInvitation: "Envoi…",
     invitationSent:
-      "Invitation envoyée avec un mot de passe provisoire. Son remplacement sera obligatoire à la première connexion.",
+      "Invitation envoyée. L’administrateur pourra choisir son mot de passe depuis le lien reçu.",
     adminAlreadyExists: "Un compte existe déjà dans cet espace.",
     activate: "Démarrer l’essai",
     suspend: "Suspendre l’accès",
@@ -231,7 +231,7 @@ const PLATFORM_COPY = {
       "The space remains pending until its trial starts. Invite its first administrator from its card.",
     adminInvitation: "Invite the first administrator",
     adminInvitationDescription:
-      "A temporary password will be emailed and must be changed at first sign-in. Access depends on the space being active.",
+      "A secure, single-use, time-limited link will be emailed so the administrator can choose a password. If it expires, they can request another using “Forgot password?”. Access depends on the space being active.",
     adminUsername: "Username",
     adminEmail: "Email address",
     adminFirstName: "First name",
@@ -239,7 +239,7 @@ const PLATFORM_COPY = {
     sendInvitation: "Send invitation",
     sendingInvitation: "Sending…",
     invitationSent:
-      "Invitation sent with a temporary password. It must be changed at first sign-in.",
+      "Invitation sent. The administrator can choose a password using the emailed link.",
     adminAlreadyExists: "An account already exists in this space.",
     activate: "Start trial",
     suspend: "Suspend access",

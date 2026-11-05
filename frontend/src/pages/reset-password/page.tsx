@@ -16,6 +16,7 @@ import { useLocale } from "@/lib/locale";
 const resetSearchSchema = z.object({
   uid: z.string().optional(),
   token: z.string().optional(),
+  purpose: z.enum(["invitation"]).optional(),
 });
 
 export const PageRoute = createFileRoute("/reset-password")({
@@ -37,24 +38,29 @@ export const PageRoute = createFileRoute("/reset-password")({
 
 function ResetPasswordPage() {
   const { t } = useLocale();
-  const { uid, token } = FileRoute.useSearch();
+  const { uid, token, purpose } = FileRoute.useSearch();
   const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [loading, setLoading] = useState(false);
   const linkIsValid = Boolean(uid && token);
+  const isInvitation = purpose === "invitation";
+  const pageTitle = isInvitation ? t("auth.invitationPasswordTitle") : t("auth.resetDocumentTitle");
+  const pageDescription = isInvitation
+    ? t("auth.invitationPasswordDescription")
+    : t("auth.resetMetaDescription");
 
   useEffect(() => {
-    document.title = t("auth.resetDocumentTitle");
+    document.title = pageTitle;
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    if (description) description.content = t("auth.resetMetaDescription");
+    if (description) description.content = pageDescription;
     const openGraphTitle = document.querySelector<HTMLMetaElement>('meta[property="og:title"]');
-    if (openGraphTitle) openGraphTitle.content = t("auth.resetDocumentTitle");
+    if (openGraphTitle) openGraphTitle.content = pageTitle;
     const openGraphDescription = document.querySelector<HTMLMetaElement>(
       'meta[property="og:description"]',
     );
-    if (openGraphDescription) openGraphDescription.content = t("auth.resetMetaDescription");
-  }, [t]);
+    if (openGraphDescription) openGraphDescription.content = pageDescription;
+  }, [pageDescription, pageTitle]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -100,8 +106,12 @@ function ResetPasswordPage() {
             alt={t("landing.logoAlt")}
             className="mx-auto mb-4 h-16 w-40 object-contain"
           />
-          <h1 className="text-2xl font-bold">{t("profile.newPassword")}</h1>
-          <p className="text-muted-foreground mt-2 text-sm">{t("auth.chooseNewPassword")}</p>
+          <h1 className="text-2xl font-bold">
+            {isInvitation ? t("auth.invitationPasswordTitle") : t("profile.newPassword")}
+          </h1>
+          <p className="text-muted-foreground mt-2 text-sm">
+            {isInvitation ? t("auth.invitationPasswordDescription") : t("auth.chooseNewPassword")}
+          </p>
         </div>
         {linkIsValid ? (
           <form onSubmit={handleSubmit} className="space-y-4">
