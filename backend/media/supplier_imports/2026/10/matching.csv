@@ -1,0 +1,3 @@
+reference,name,quantity,unit_price,currency
+SKU-MATCH-1,Produit fournisseur,2,125,USD
+UNKNOWN-1,Nouveau produit,3,250,USD

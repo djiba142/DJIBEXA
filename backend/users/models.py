@@ -48,6 +48,7 @@ class User(AbstractUser):
     )
     is_platform_admin = models.BooleanField(default=False)
     invitation_pending = models.BooleanField(default=False)
+    must_change_password = models.BooleanField(default=False)
     phone = models.CharField(max_length=30, blank=True, default='')
     photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
     pin_code = models.CharField(max_length=128, blank=True, default='')

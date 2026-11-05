@@ -351,21 +351,25 @@ ROLE_PERMISSIONS = {
     'sales': {'products', 'customers', 'sales', 'payments', 'notifications'},
 }
 
-def _get_cors_origins(defaults):
-    custom = os.getenv('CORS_ALLOWED_ORIGINS')
+def _get_cors_origins(defaults, env_var='CORS_ALLOWED_ORIGINS'):
+    custom = os.getenv(env_var)
     if custom:
         return [origin.strip() for origin in custom.split(',') if origin.strip()]
     return defaults
 
 
 CSRF_TRUSTED_ORIGINS = _get_cors_origins([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://localhost:5500',
     'http://127.0.0.1:5500',
-])
+], env_var='CSRF_TRUSTED_ORIGINS')
 
 CORS_ALLOWED_ORIGINS = _get_cors_origins([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
     'http://localhost:5500',
     'http://127.0.0.1:5500',
     'http://localhost:5173',

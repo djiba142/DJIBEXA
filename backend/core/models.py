@@ -25,6 +25,7 @@ class Tenant(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     trial_activated_at = models.DateTimeField(null=True, blank=True)
     trial_ends_at = models.DateTimeField(null=True, blank=True)
+    trial_duration_months = models.PositiveSmallIntegerField(default=3)
     max_users = models.PositiveIntegerField(default=10)
     enabled_modules = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -33,18 +34,23 @@ class Tenant(models.Model):
     class Meta:
         ordering = ['name', 'id']
 
-    def activate_trial(self, activated_at=None):
+    def activate_trial(self, activated_at=None, duration_months=None):
         if self.trial_activated_at is not None:
             raise ValidationError('La période d’essai est déjà activée.')
 
+        duration_months = duration_months if duration_months is not None else self.trial_duration_months or 3
+        if not isinstance(duration_months, int) or duration_months < 1 or duration_months > 12:
+            raise ValidationError('La durée d’essai doit être comprise entre 1 et 12 mois.')
+
         activated_at = activated_at or timezone.now()
-        month_offset = activated_at.month - 1 + 3
+        month_offset = activated_at.month - 1 + duration_months
         end_year = activated_at.year + month_offset // 12
         end_month = month_offset % 12 + 1
         end_day = min(activated_at.day, monthrange(end_year, end_month)[1])
 
         self.status = 'active'
         self.trial_activated_at = activated_at
+        self.trial_duration_months = duration_months
         self.trial_ends_at = activated_at.replace(
             year=end_year,
             month=end_month,
@@ -54,6 +60,7 @@ class Tenant(models.Model):
             'status',
             'trial_activated_at',
             'trial_ends_at',
+            'trial_duration_months',
             'updated_at',
         ])
 
@@ -97,6 +104,7 @@ class PlatformAuditLog(models.Model):
         ('activate', 'Activation'),
         ('suspend', 'Suspension'),
         ('resume', 'Reprise'),
+        ('delete', 'Suppression'),
         ('invite_admin', 'Invitation du premier administrateur'),
     ]
 

@@ -74,6 +74,7 @@ def tenant_summary(tenant):
         'status': tenant.status_at(),
         'trialActivatedAt': tenant.trial_activated_at,
         'trialEndsAt': tenant.trial_ends_at,
+        'trialDurationMonths': tenant.trial_duration_months,
         'activeUsers': active_users,
         'maxUsers': tenant.max_users,
         'hasUsers': bool(has_users),
@@ -209,6 +210,29 @@ class PlatformTenantDetailView(APIView):
         )
         return Response(tenant_summary(tenant))
 
+    @transaction.atomic
+    def delete(self, request, pk):
+        tenant = get_object_or_404(Tenant.objects.select_related(), pk=pk)
+        tenant_name = tenant.name
+        for model in Tenant._meta.apps.get_models():
+            if model is Tenant:
+                continue
+            for field in model._meta.get_fields():
+                if (
+                    getattr(field, 'name', None) == 'tenant'
+                    and getattr(getattr(field, 'remote_field', None), 'model', None) is Tenant
+                ):
+                    model.objects.filter(tenant_id=tenant.pk).delete()
+                    break
+        tenant.delete()
+        PlatformAuditLog.objects.create(
+            actor=request.user,
+            tenant=None,
+            action='delete',
+            details={'name': tenant_name, 'slug': tenant.slug, 'status': 'deleted'},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class PlatformTenantAdminInvitationView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsPlatformAdmin]
@@ -279,9 +303,20 @@ class PlatformTenantActionView(APIView):
                 raise ValidationError({
                     'detail': 'Seul un espace en attente peut démarrer son essai.',
                 })
+            trial_months = request.data.get('trial_months', tenant.trial_duration_months or 3)
+            try:
+                trial_months = int(trial_months)
+            except (TypeError, ValueError):
+                raise ValidationError({
+                    'trial_months': 'La durée d’essai doit être un nombre entier entre 1 et 12 mois.',
+                })
+            if trial_months < 1 or trial_months > 12:
+                raise ValidationError({
+                    'trial_months': 'La durée d’essai doit être comprise entre 1 et 12 mois.',
+                })
             audit_action = 'activate'
             try:
-                tenant.activate_trial(activated_at=now)
+                tenant.activate_trial(activated_at=now, duration_months=trial_months)
             except DjangoValidationError as error:
                 raise ValidationError({'detail': error.messages}) from error
             activate_pending_tenant_admins(tenant)
@@ -320,6 +355,7 @@ class PlatformTenantActionView(APIView):
                     if tenant.trial_ends_at
                     else None
                 ),
+                'trial_months': tenant.trial_duration_months,
             },
         )
         return Response(tenant_summary(tenant))
@@ -341,14 +377,22 @@ def platform_audit_details(entry):
         'activate': {
             'status': str,
             'trial_ends_at': str,
+            'trial_months': int,
         },
         'suspend': {
             'status': str,
             'trial_ends_at': str,
+            'trial_months': int,
         },
         'resume': {
             'status': str,
             'trial_ends_at': str,
+            'trial_months': int,
+        },
+        'delete': {
+            'name': str,
+            'slug': str,
+            'status': str,
         },
         'invite_admin': {
             'role': str,
@@ -381,6 +425,7 @@ class PlatformAuditLogListView(APIView):
         if action:
             allowed_actions = {
                 value for value, _label in PlatformAuditLog.ACTION_CHOICES
+                if value != 'delete'
             }
             if action not in allowed_actions:
                 raise ValidationError({'action': 'Filtre d’action invalide.'})

@@ -23,6 +23,7 @@ class UserSerializer(serializers.ModelSerializer):
             'role',
             'roles',
             'is_platform_admin',
+            'must_change_password',
             'phone',
             'photo',
             'password',
@@ -36,6 +37,7 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields: ClassVar[tuple[str, ...]] = (
             'id',
             'is_platform_admin',
+            'must_change_password',
             'created_at',
             'updated_at',
         )
