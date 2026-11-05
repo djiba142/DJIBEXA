@@ -78,6 +78,14 @@ class PlatformSettings(models.Model):
     max_active_users = models.PositiveIntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def default(cls):
+        return cls.objects.get_or_create(pk=1)[0]
+
+    @classmethod
+    def default_locked(cls):
+        return cls.objects.select_for_update().get_or_create(pk=1)[0]
+
     def __str__(self):
         return 'DJIBEXA Platform Settings'
 

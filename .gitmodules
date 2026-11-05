@@ -1,3 +1,3 @@
 [submodule "image-ad-studio"]
-	path = image-ad-studio
+	path = frontend
 	url = https://github.com/djiba142/image-ad-studio.git

@@ -1,21 +1,24 @@
 from django.contrib import messages
-from django.contrib.auth import login, logout
+from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.tokens import default_token_generator
 from django.conf import settings
-from django.core.mail import send_mail
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import activate, get_language
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils.crypto import get_random_string
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_view
 
 from core.models import AuditLog, PlatformSettings, Tenant
+from core.mailer import send_branded_mail
+from core.onboarding import send_password_setup_email, send_temporary_password_email
 from .models import User
 from .permissions import IsTenantAdminUser
 from .serializers import LoginSerializer, LogoutResponseSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, UserProfileSerializer, UserSerializer
@@ -33,10 +36,17 @@ class UserListView(generics.ListCreateAPIView):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        temporary_password = get_random_string(24)
+        request_data = request.data.copy()
+        request_data['password'] = temporary_password
+        serializer = self.get_serializer(data=request_data)
         serializer.is_valid(raise_exception=True)
+        if not serializer.validated_data.get('email'):
+            raise serializers.ValidationError({
+                'email': 'Une adresse e-mail est nécessaire pour envoyer le mot de passe provisoire.',
+            })
         tenant = Tenant.objects.select_for_update().get(pk=request.user.tenant_id)
-        platform_settings = PlatformSettings.objects.select_for_update().get(pk=1)
+        platform_settings = PlatformSettings.default_locked()
         tenant_active_users = User.objects.filter(
             tenant=tenant,
             is_active=True,
@@ -56,7 +66,8 @@ class UserListView(generics.ListCreateAPIView):
             raise serializers.ValidationError({
                 'detail': 'La limite globale d’utilisateurs actifs est atteinte.',
             })
-        user = serializer.save(tenant=tenant)
+        user = serializer.save(tenant=tenant, must_change_password=True)
+        send_temporary_password_email(user, tenant, temporary_password)
         AuditLog.objects.create(
             user=request.user,
             action='create',
@@ -92,7 +103,7 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
             tenant = Tenant.objects.select_for_update().get(
                 pk=request.user.tenant_id,
             )
-            platform_settings = PlatformSettings.objects.select_for_update().get(pk=1)
+            platform_settings = PlatformSettings.default_locked()
             tenant_active_users = User.objects.filter(
                 tenant=tenant,
                 is_active=True,
@@ -229,6 +240,45 @@ class LoginView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+class RequiredPasswordChangeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if not user.must_change_password:
+            return Response(
+                {'detail': 'Aucun changement obligatoire de mot de passe n’est en attente.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        current_password = request.data.get('current_password')
+        new_password = request.data.get('new_password')
+        if not isinstance(current_password, str) or not user.check_password(current_password):
+            return Response(
+                {'current_password': 'Le mot de passe provisoire est incorrect.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(new_password, str) or len(new_password) < 8:
+            return Response(
+                {'new_password': 'Le mot de passe doit contenir au moins 8 caractères.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({'new_password': error.messages}) from error
+
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=['password', 'must_change_password', 'updated_at'])
+        update_session_auth_hash(request, user)
+        return Response({
+            'success': True,
+            'message': 'Mot de passe modifié.',
+            'user': UserSerializer(user).data,
+        }, status=status.HTTP_200_OK)
+
+
 class PinResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -236,30 +286,36 @@ class PinResetRequestView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = PinResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = User.objects.filter(email__iexact=serializer.validated_data['email'], is_active=True).first()
+        user = User.objects.filter(email__iexact=serializer.validated_data['email']).filter(
+            Q(is_active=True) | Q(invitation_pending=True, tenant__isnull=False)
+        ).first()
         response_data = {
             'success': True,
             'message': 'Si ce compte existe, les instructions ont été envoyées à cette adresse.',
         }
         if user:
-            token = default_token_generator.make_token(user)
-            reset_url = (
-                f'{settings.FRONTEND_BASE_URL}/reset-password'
-                f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
-            )
-            send_mail(
-                subject='Réinitialisation de votre mot de passe — DJIBEXA',
-                message=(
-                    f'Bonjour {user.display_name},\n\n'
-                    'Une demande de réinitialisation du mot de passe de votre compte a été reçue.\n'
-                    'Pour choisir un nouveau mot de passe, ouvrez ce lien :\n'
-                    f'{reset_url}\n\n'
-                    'Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.'
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
-            )
+            if user.invitation_pending and user.tenant_id:
+                send_password_setup_email(user, user.tenant)
+            else:
+                token = default_token_generator.make_token(user)
+                reset_url = (
+                    f'{settings.FRONTEND_BASE_URL.rstrip("/")}/reset-password'
+                    f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
+                )
+                send_branded_mail(
+                    subject='Réinitialisation de votre mot de passe — DJIBEXA',
+                    message=(
+                        f'Bonjour {user.display_name},\n\n'
+                        'Une demande de réinitialisation du mot de passe de votre compte a été reçue.\n'
+                        'Pour choisir un nouveau mot de passe, utilisez le bouton ci-dessous.\n\n'
+                        f'Si le bouton ne fonctionne pas, copiez ce lien :\n{reset_url}\n\n'
+                        'Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.'
+                    ),
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                    action_url=reset_url,
+                    action_label='Choisir un nouveau mot de passe',
+                )
         return Response(response_data, status=status.HTTP_200_OK)
 
 
@@ -312,7 +368,7 @@ class PinResetConfirmView(APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            platform_settings = PlatformSettings.objects.select_for_update().get(pk=1)
+            platform_settings = PlatformSettings.default_locked()
             if platform_settings.max_active_users is not None:
                 platform_active_users = User.objects.filter(
                     is_active=True,
@@ -329,12 +385,14 @@ class PinResetConfirmView(APIView):
         user.set_password(password)
         user.is_active = True
         user.invitation_pending = False
+        user.must_change_password = False
         user.failed_login_attempts = 0
         user.locked_until = None
         user.save(update_fields=[
             'password',
             'is_active',
             'invitation_pending',
+            'must_change_password',
             'failed_login_attempts',
             'locked_until',
             'updated_at',

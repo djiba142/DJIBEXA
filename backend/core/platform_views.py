@@ -2,15 +2,11 @@ import logging
 import shutil
 
 from django.conf import settings
-from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
 from django.db import DatabaseError, connection, transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode
 from rest_framework import permissions, serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -19,6 +15,7 @@ from rest_framework.views import APIView
 from users.permissions import IsPlatformAdmin
 from users.models import User
 
+from .onboarding import send_password_setup_email
 from .models import PlatformAuditLog, PlatformSettings, PlatformTaskRun, Tenant
 from .pagination import VersionedApiPagination
 
@@ -84,7 +81,7 @@ def tenant_summary(tenant):
 
 
 def validate_platform_capacity(max_users):
-    platform_settings = PlatformSettings.objects.select_for_update().get(pk=1)
+    platform_settings = PlatformSettings.default_locked()
     if (
         platform_settings.max_tenants is not None
         and Tenant.objects.count() >= platform_settings.max_tenants
@@ -99,6 +96,45 @@ def validate_platform_capacity(max_users):
         raise ValidationError({
             'max_users': 'La limite de cet espace dépasse le plafond global utilisateurs.',
         })
+
+
+def activate_pending_tenant_admins(tenant):
+    pending_admins = list(
+        tenant.users.select_for_update().filter(
+            is_active=False,
+            is_platform_admin=False,
+            invitation_pending=True,
+            must_change_password=True,
+        )
+    )
+    if not pending_admins:
+        return
+    if tenant.users.filter(
+        is_active=True,
+        is_platform_admin=False,
+    ).count() + len(pending_admins) > tenant.max_users:
+        raise ValidationError({
+            'detail': 'La capacité de l’espace ne permet pas d’activer ses comptes en attente.',
+        })
+    platform_settings = PlatformSettings.default_locked()
+    if (
+        platform_settings.max_active_users is not None
+        and User.objects.filter(
+            is_active=True,
+            is_platform_admin=False,
+        ).count() + len(pending_admins) > platform_settings.max_active_users
+    ):
+        raise ValidationError({
+            'detail': 'La limite globale d’utilisateurs actifs ne permet pas cette activation.',
+        })
+    for invited_admin in pending_admins:
+        invited_admin.is_active = True
+        invited_admin.invitation_pending = False
+        invited_admin.save(update_fields=[
+            'is_active',
+            'invitation_pending',
+            'updated_at',
+        ])
 
 
 class PlatformTenantCreateView(APIView):
@@ -151,7 +187,7 @@ class PlatformTenantDetailView(APIView):
             raise ValidationError({
                 'max_users': 'Le plafond ne peut pas être inférieur aux utilisateurs actifs.',
             })
-        platform_settings = PlatformSettings.objects.get(pk=1)
+        platform_settings = PlatformSettings.default()
         if (
             platform_settings.max_active_users is not None
             and max_users > platform_settings.max_active_users
@@ -183,7 +219,7 @@ class PlatformTenantAdminInvitationView(APIView):
             Tenant.objects.select_for_update(),
             pk=pk,
         )
-        PlatformSettings.objects.select_for_update().get(pk=1)
+        PlatformSettings.default_locked()
         serializer = PlatformAdminInvitationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         if tenant.users.filter(is_platform_admin=False).exists():
@@ -195,7 +231,7 @@ class PlatformTenantAdminInvitationView(APIView):
                 'detail': 'La capacité de cet espace ne permet pas de créer un compte.',
             })
 
-        platform_settings = PlatformSettings.objects.get(pk=1)
+        platform_settings = PlatformSettings.default()
         if (
             platform_settings.max_active_users is not None
             and User.objects.filter(
@@ -214,31 +250,11 @@ class PlatformTenantAdminInvitationView(APIView):
             last_name=serializer.validated_data.get('last_name', ''),
             role='admin',
             tenant=tenant,
-            is_active=False,
-            invitation_pending=True,
+            is_active=tenant.status_at() == 'active',
+            invitation_pending=tenant.status_at() != 'active',
         )
-        user.set_unusable_password()
         user.save()
-
-        token = default_token_generator.make_token(user)
-        invitation_url = (
-            f'{settings.FRONTEND_BASE_URL}/reset-password'
-            f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
-        )
-        send_mail(
-            subject='Invitation administrateur DJIBEXA',
-            message=(
-                f'Bonjour {user.get_full_name() or user.username},\n\n'
-                f'Vous êtes invité à administrer l’espace {tenant.name} sur DJIBEXA.\n'
-                'Choisissez votre mot de passe avec ce lien sécurisé :\n'
-                f'{invitation_url}\n\n'
-                'Le lien est à usage unique et expire. Si vous ne vous attendiez pas '
-                'à cette invitation, ignorez ce message.'
-            ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
+        send_password_setup_email(user, tenant)
         PlatformAuditLog.objects.create(
             actor=request.user,
             tenant=tenant,
@@ -268,6 +284,7 @@ class PlatformTenantActionView(APIView):
                 tenant.activate_trial(activated_at=now)
             except DjangoValidationError as error:
                 raise ValidationError({'detail': error.messages}) from error
+            activate_pending_tenant_admins(tenant)
         elif action == 'suspend':
             if tenant.status != 'active':
                 raise ValidationError({
@@ -287,6 +304,7 @@ class PlatformTenantActionView(APIView):
                 })
             tenant.status = 'active'
             tenant.save(update_fields=['status', 'updated_at'])
+            activate_pending_tenant_admins(tenant)
             audit_action = 'resume'
         else:
             raise ValidationError({'action': 'Action de plateforme inconnue.'})
@@ -501,7 +519,7 @@ class PlatformOverviewView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsPlatformAdmin]
 
     def get(self, request):
-        settings = PlatformSettings.objects.get(pk=1)
+        settings = PlatformSettings.default()
         tenants = list(
             Tenant.objects.annotate(
                 platform_active_users=Count(

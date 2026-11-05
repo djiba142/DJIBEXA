@@ -4,7 +4,6 @@ import sys
 from importlib import import_module
 from datetime import datetime, timedelta
 from decimal import Decimal
-from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -35,6 +34,7 @@ from sales.models import (
 )
 from suppliers.models import Supplier
 from users.models import User
+from .mailer import create_branded_email
 from .models import (
     AppSetting,
     AuditLog,
@@ -63,6 +63,8 @@ class ProductionSettingsTests(SimpleTestCase):
             'DB_USER': 'test_only',
             'DB_PASSWORD': 'not-a-real-password',
             'EMAIL_BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+            'CORS_ALLOWED_ORIGINS': 'https://app.example.test',
+            'CSRF_TRUSTED_ORIGINS': 'https://app.example.test',
         })
         env.update(overrides)
         return subprocess.run(
@@ -129,6 +131,69 @@ class ProductionSettingsTests(SimpleTestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('EMAIL_BACKEND doit permettre un véritable envoi', result.stderr)
+
+
+class BrandedEmailTests(SimpleTestCase):
+    @override_settings(FRONTEND_BASE_URL='https://erp.example.test')
+    def test_email_alternative_contains_djibexa_logo_and_escapes_message(self):
+        email = create_branded_email(
+            subject='Notification DJIBEXA',
+            message='<script>alert("x")</script>',
+            recipient_list=['user@example.test'],
+        )
+
+        self.assertIn('<script>alert("x")</script>', email.body)
+        html_message, content_type = email.alternatives[0]
+        self.assertEqual(content_type, 'text/html')
+        self.assertIn('https://erp.example.test/brand/kourouma-logo.svg', html_message)
+        self.assertIn('&lt;script&gt;', html_message)
+
+    def test_email_action_is_a_safe_html_link_and_remains_in_plain_text(self):
+        action_url = 'https://erp.example.test/reset-password?uid=1&token=token'
+        email = create_branded_email(
+            subject='Invitation DJIBEXA',
+            message=f'Utilisez ce lien :\n{action_url}',
+            recipient_list=['user@example.test'],
+            action_url=action_url,
+            action_label='Choisir mon mot de passe',
+        )
+
+        html_message, _ = email.alternatives[0]
+        self.assertIn('href="https://erp.example.test/reset-password?uid=1&amp;token=token"', html_message)
+        self.assertIn('Choisir mon mot de passe', html_message)
+        self.assertIn(action_url, email.body)
+
+
+class DevelopmentCorsSettingsTests(SimpleTestCase):
+    def test_default_settings_allow_tanstack_local_origins(self):
+        backend_dir = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        env.update({
+            'DJANGO_SETTINGS_MODULE': 'nexora_backend.settings',
+            'DJANGO_ENV': 'development',
+            'DJANGO_DEBUG': 'true',
+            'DB_ENGINE': 'sqlite',
+            'DB_NAME': ':memory:',
+            'CORS_ALLOWED_ORIGINS': '',
+            'CSRF_TRUSTED_ORIGINS': '',
+        })
+        script = (
+            'from django.conf import settings; '
+            'origins=("http://localhost:3000", "http://127.0.0.1:3000"); '
+            'assert all(origin in settings.CORS_ALLOWED_ORIGINS for origin in origins); '
+            'assert all(origin in settings.CSRF_TRUSTED_ORIGINS for origin in origins)'
+        )
+        result = subprocess.run(
+            [sys.executable, '-c', script],
+            cwd=backend_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class DjangoAdminBrandingTests(TestCase):
@@ -474,12 +539,18 @@ class CoreApiTests(TestCase):
         self.assertEqual(invited_user.role, 'admin')
         self.assertFalse(invited_user.is_active)
         self.assertTrue(invited_user.invitation_pending)
+        self.assertTrue(invited_user.must_change_password)
         self.assertFalse(invited_user.has_usable_password())
         overview = self.client.get('/api/v1/platform/overview/')
         self.assertTrue(overview.data['tenants'][0]['hasUsers'])
         self.assertEqual(overview.data['tenants'][0]['activeUsers'], 0)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(tenant.name, mail.outbox[0].body)
+        self.assertIn(invited_user.username, mail.outbox[0].body)
+        self.assertIn('purpose=invitation', mail.outbox[0].body)
+        self.assertNotIn('mot de passe provisoire', mail.outbox[0].body.lower())
+        self.assertIn('Choisir mon mot de passe', mail.outbox[0].alternatives[0][0])
+        self.assertIn('kourouma-logo.svg', mail.outbox[0].alternatives[0][0])
         self.assertNotIn('initial.admin@example.com', str(response.data))
         self.assertEqual(
             PlatformAuditLog.objects.get(
@@ -496,45 +567,16 @@ class CoreApiTests(TestCase):
         )
         self.assertNotIn('initial.admin@example.com', str(audit_response.data))
 
-        invitation_url = next(
-            line for line in mail.outbox[0].body.splitlines()
-            if '/reset-password?' in line
-        )
-        query = parse_qs(urlsplit(invitation_url).query)
-        confirmation = self.client.post(
-            '/api/v1/users/pin-reset/confirm/',
-            {
-                'uid': query['uid'][0],
-                'token': query['token'][0],
-                'password': '9g!Rk4#vP2@xT8$w',
-            },
-            format='json',
-        )
-        self.assertEqual(confirmation.status_code, 200, confirmation.data)
-        replay = self.client.post(
-            '/api/v1/users/pin-reset/confirm/',
-            {
-                'uid': query['uid'][0],
-                'token': query['token'][0],
-                'password': '9g!Rk4#vP2@xT8$w',
-            },
-            format='json',
-        )
-        self.assertEqual(replay.status_code, 400)
-        invited_user.refresh_from_db()
-        self.assertTrue(invited_user.is_active)
-        self.assertFalse(invited_user.invitation_pending)
-        self.assertTrue(invited_user.check_password('9g!Rk4#vP2@xT8$w'))
         self.client.force_authenticate(user=None)
         blocked_login = self.client.post(
             '/api/v1/users/login/',
             {
                 'identifier': invited_user.username,
-                'password': '9g!Rk4#vP2@xT8$w',
+                'password': 'AnyPassword!2026',
             },
             format='json',
         )
-        self.assertEqual(blocked_login.status_code, 403)
+        self.assertEqual(blocked_login.status_code, 401)
         self.client.force_authenticate(user=platform_admin)
         activated = self.client.post(
             f'/api/v1/platform/tenants/{tenant.pk}/activate/',
@@ -542,17 +584,36 @@ class CoreApiTests(TestCase):
         )
         self.assertEqual(activated.status_code, 200, activated.data)
         self.client.force_authenticate(user=None)
+
+        uid = urlsafe_base64_encode(force_bytes(invited_user.pk))
+        token = default_token_generator.make_token(invited_user)
+        reset_response = self.client.post(
+            '/api/v1/users/pin-reset/confirm/',
+            {
+                'uid': uid,
+                'token': token,
+                'password': 'PermanentSecure!2026',
+            },
+            format='json',
+        )
+        self.assertEqual(reset_response.status_code, 200, reset_response.data)
+        invited_user.refresh_from_db()
+        self.assertTrue(invited_user.check_password('PermanentSecure!2026'))
+        self.assertFalse(invited_user.must_change_password)
+
         successful_login = self.client.post(
             '/api/v1/users/login/',
             {
                 'identifier': invited_user.username,
-                'password': '9g!Rk4#vP2@xT8$w',
+                'password': 'PermanentSecure!2026',
             },
             format='json',
         )
         self.assertEqual(successful_login.status_code, 200, successful_login.data)
+        self.assertFalse(successful_login.data['user']['must_change_password'])
+        self.assertEqual(self.client.get('/api/v1/users/').status_code, 200)
 
-    def test_tenant_admin_invitation_is_single_use_and_checks_existing_identity(self):
+    def test_tenant_admin_invitation_checks_existing_identity(self):
         platform_admin = User.objects.create_user(
             username='platform_invitation_guard',
             password='secret123',
@@ -595,6 +656,48 @@ class CoreApiTests(TestCase):
         self.assertFalse(User.objects.filter(tenant=second_tenant).exists())
         self.assertEqual(len(mail.outbox), 1)
 
+    def test_platform_admin_can_invite_first_admin_after_tenant_activation(self):
+        platform_admin = User.objects.create_user(
+            username='platform_active_tenant_inviter',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        tenant = Tenant.objects.create(
+            slug='already-active-invitation',
+            name='Entreprise déjà activée',
+        )
+        tenant.activate_trial()
+        self.client.force_authenticate(user=platform_admin)
+
+        invited = self.client.post(
+            f'/api/v1/platform/tenants/{tenant.pk}/admin-invitation/',
+            {
+                'username': 'active_tenant_admin',
+                'email': 'active.tenant.admin@example.com',
+            },
+            format='json',
+        )
+
+        self.assertEqual(invited.status_code, 201, invited.data)
+        invited_user = User.objects.get(username='active_tenant_admin')
+        self.assertTrue(invited_user.is_active)
+        self.assertFalse(invited_user.invitation_pending)
+        self.assertTrue(invited_user.must_change_password)
+        self.assertFalse(invited_user.has_usable_password())
+        self.assertIn('purpose=invitation', mail.outbox[0].body)
+        self.assertNotIn('mot de passe provisoire', mail.outbox[0].body.lower())
+        self.assertIn('Choisir mon mot de passe', mail.outbox[0].alternatives[0][0])
+        self.client.force_authenticate(user=None)
+        login_response = self.client.post(
+            '/api/v1/users/login/',
+            {
+                'identifier': invited_user.username,
+                'password': 'TemporaryPassword!2026',
+            },
+            format='json',
+        )
+        self.assertEqual(login_response.status_code, 401, login_response.data)
+
     def test_platform_admin_invitation_rolls_back_when_email_cannot_be_sent(self):
         platform_admin = User.objects.create_user(
             username='platform_invitation_mail_failure',
@@ -608,7 +711,7 @@ class CoreApiTests(TestCase):
         self.client.force_authenticate(user=platform_admin)
 
         with patch(
-            'core.platform_views.send_mail',
+            'core.platform_views.send_password_setup_email',
             side_effect=RuntimeError('SMTP unavailable'),
         ):
             with self.assertRaises(RuntimeError):
@@ -661,18 +764,8 @@ class CoreApiTests(TestCase):
             password='secret123',
             tenant=other_tenant,
         )
-        invitation_url = next(
-            line for line in mail.outbox[0].body.splitlines()
-            if '/reset-password?' in line
-        )
-        query = parse_qs(urlsplit(invitation_url).query)
         response = self.client.post(
-            '/api/v1/users/pin-reset/confirm/',
-            {
-                'uid': query['uid'][0],
-                'token': query['token'][0],
-                'password': '9g!Rk4#vP2@xT8$w',
-            },
+            f'/api/v1/platform/tenants/{tenant.pk}/activate/',
             format='json',
         )
 
@@ -680,7 +773,9 @@ class CoreApiTests(TestCase):
         invited_user = User.objects.get(username='capacity_initial_admin')
         self.assertFalse(invited_user.is_active)
         self.assertTrue(invited_user.invitation_pending)
-        self.assertFalse(invited_user.has_usable_password())
+        self.assertTrue(invited_user.must_change_password)
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.status, 'pending')
 
     def test_password_reset_does_not_reactivate_non_invited_inactive_user(self):
         inactive_user = User.objects.create_user(
@@ -951,7 +1046,8 @@ class CoreApiTests(TestCase):
 
     def test_platform_migration_preserves_existing_company_tenant_assignment(self):
         Tenant.objects.all().delete()
-        company = Company.objects.create(name='Entreprise historique')
+        Company.objects.all().delete()
+        company = Company.objects.create(pk=1, name='Entreprise historique')
         migration = import_module(
             'core.migrations.0006_platformsettings_tenant_company_tenant',
         )
