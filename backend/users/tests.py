@@ -298,6 +298,77 @@ class AuthLoginTests(TestCase):
         self.assertEqual(known_response.status_code, unknown_response.status_code)
         self.assertEqual(known_response.data, unknown_response.data)
 
+    def test_activated_admin_can_request_another_password_setup_link(self):
+        invited_user = User.objects.create_user(
+            username='activated_reset_invitation',
+            email='activated.reset.invitation@example.com',
+            password='TemporaryPassword!2026',
+            role='admin',
+            tenant=self.tenant,
+            is_active=True,
+            invitation_pending=False,
+            must_change_password=True,
+        )
+        invited_user.set_unusable_password()
+        invited_user.save(update_fields=['password'])
+
+        response = self.client.post(
+            '/api/v1/users/pin-reset/request/',
+            {'email': invited_user.email},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        invitation_email = mail.outbox[0]
+        invited_user.refresh_from_db()
+        self.assertIn('/reset-password?uid=', invitation_email.body)
+        self.assertIn('Choisir un nouveau mot de passe', invitation_email.alternatives[0][0])
+        self.assertFalse(invited_user.has_usable_password())
+        blocked_login = self.client.post(
+            '/api/v1/users/login/',
+            {
+                'identifier': invited_user.username,
+                'password': 'TemporaryPassword!2026',
+            },
+            format='json',
+        )
+        self.assertEqual(blocked_login.status_code, 401)
+        setup_url = next(
+            line for line in invitation_email.body.splitlines()
+            if '/reset-password?uid=' in line
+        )
+        token = setup_url.split('&token=', 1)[1].split('&', 1)[0]
+        self.assertTrue(default_token_generator.check_token(invited_user, token))
+
+        confirmation = self.client.post(
+            '/api/v1/users/pin-reset/confirm/',
+            {
+                'uid': urlsafe_base64_encode(force_bytes(invited_user.pk)),
+                'token': token,
+                'password': 'ChosenPassword!2026',
+            },
+            format='json',
+        )
+
+        self.assertEqual(confirmation.status_code, 200, confirmation.data)
+        invited_user.refresh_from_db()
+        self.assertTrue(invited_user.check_password('ChosenPassword!2026'))
+        self.assertTrue(invited_user.is_active)
+        self.assertFalse(invited_user.invitation_pending)
+        self.assertFalse(invited_user.must_change_password)
+
+        reused_token = self.client.post(
+            '/api/v1/users/pin-reset/confirm/',
+            {
+                'uid': urlsafe_base64_encode(force_bytes(invited_user.pk)),
+                'token': token,
+                'password': 'AnotherChosenPassword!2026',
+            },
+            format='json',
+        )
+        self.assertEqual(reused_token.status_code, 400)
+
     def test_password_reset_confirm_changes_password_with_valid_token(self):
         response = self.client.post(
             '/api/v1/users/pin-reset/confirm/',

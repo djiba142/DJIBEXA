@@ -17,7 +17,7 @@ from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_vie
 
 from core.models import AuditLog, PlatformSettings, Tenant
 from core.mailer import send_branded_mail
-from core.onboarding import send_temporary_password_email
+from core.onboarding import send_password_setup_email, send_temporary_password_email
 from .models import User
 from .permissions import IsTenantAdminUser
 from .serializers import LoginSerializer, LogoutResponseSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, UserProfileSerializer, UserSerializer
@@ -285,29 +285,37 @@ class PinResetRequestView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = PinResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = User.objects.filter(email__iexact=serializer.validated_data['email'], is_active=True).first()
+        user = User.objects.filter(
+            email__iexact=serializer.validated_data['email'],
+            is_active=True,
+        ).first()
         response_data = {
             'success': True,
             'message': 'Si ce compte existe, les instructions ont été envoyées à cette adresse.',
         }
         if user:
-            token = default_token_generator.make_token(user)
-            reset_url = (
-                f'{settings.FRONTEND_BASE_URL}/reset-password'
-                f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
-            )
-            send_branded_mail(
-                subject='Réinitialisation de votre mot de passe — DJIBEXA',
-                message=(
-                    f'Bonjour {user.display_name},\n\n'
-                    'Une demande de réinitialisation du mot de passe de votre compte a été reçue.\n'
-                    'Pour choisir un nouveau mot de passe, ouvrez ce lien :\n'
-                    f'{reset_url}\n\n'
-                    'Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.'
-                ),
-                recipient_list=[user.email],
-                fail_silently=False,
-            )
+            if user.invitation_pending and user.tenant_id:
+                send_password_setup_email(user, user.tenant)
+            else:
+                token = default_token_generator.make_token(user)
+                reset_url = (
+                    f'{settings.FRONTEND_BASE_URL.rstrip("/")}/reset-password'
+                    f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
+                )
+                send_branded_mail(
+                    subject='Réinitialisation de votre mot de passe — DJIBEXA',
+                    message=(
+                        f'Bonjour {user.display_name},\n\n'
+                        'Une demande de réinitialisation du mot de passe de votre compte a été reçue.\n'
+                        'Pour choisir un nouveau mot de passe, utilisez le bouton ci-dessous.\n\n'
+                        f'Si le bouton ne fonctionne pas, copiez ce lien :\n{reset_url}\n\n'
+                        'Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.'
+                    ),
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                    action_url=reset_url,
+                    action_label='Choisir un nouveau mot de passe',
+                )
         return Response(response_data, status=status.HTTP_200_OK)
 
 

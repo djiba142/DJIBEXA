@@ -4,9 +4,26 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
 
-def create_branded_email(subject, message, recipient_list, from_email=None):
+def create_branded_email(
+    subject,
+    message,
+    recipient_list,
+    from_email=None,
+    action_url=None,
+    action_label=None,
+):
     plain_message = str(message)
     logo_url = f'{settings.FRONTEND_BASE_URL.rstrip("/")}/brand/kourouma-logo.svg'
+    action_html = ''
+    if action_url and action_label:
+        action_html = f'''\
+      <tr>
+        <td style="padding:0 32px 28px;text-align:center">
+          <a href="{escape(action_url, quote=True)}" style="display:inline-block;background:#174A78;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:bold">
+            {escape(action_label)}
+          </a>
+        </td>
+      </tr>'''
     html_message = f'''\
 <!doctype html>
 <html lang="fr">
@@ -22,6 +39,7 @@ def create_branded_email(subject, message, recipient_list, from_email=None):
           {escape(plain_message)}
         </td>
       </tr>
+      {action_html}
       <tr>
         <td style="padding:16px 32px 24px;color:#6b7280;font-size:12px;text-align:center">
           DJIBEXA — Gestion commerciale
@@ -46,11 +64,15 @@ def send_branded_mail(
     recipient_list,
     from_email=None,
     fail_silently=False,
+    action_url=None,
+    action_label=None,
 ):
     email = create_branded_email(
         subject=subject,
         message=message,
         recipient_list=recipient_list,
         from_email=from_email,
+        action_url=action_url,
+        action_label=action_label,
     )
     return email.send(fail_silently=fail_silently)
