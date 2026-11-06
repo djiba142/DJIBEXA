@@ -20,8 +20,8 @@ ressources payantes pour PostgreSQL et la conservation des fichiers.
    Le frontend est un dépôt Git distinct déclaré comme sous-module : pousser
    d'abord son commit sur `djiba142/image-ad-studio`, puis le commit principal.
    Vérifier que le checkout Render initialise le sous-module avant d'utiliser
-   `rootDir: image-ad-studio` ; sinon, configurer le service frontend depuis son
-   dépôt dédié plutôt que de lancer un build incomplet.
+   `rootDir: frontend` ; sinon, configurer le service frontend depuis son dépôt
+   dédié plutôt que de lancer un build incomplet.
 2. Vérifier la région Frankfurt et les noms `nexora-api`, `nexora-web` et
    `nexora-db`. Ils doivent rester cohérents avec les hôtes et origines définis
    dans le Blueprint, ou être mis à jour ensemble.
