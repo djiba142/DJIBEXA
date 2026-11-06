@@ -179,7 +179,9 @@ class DevelopmentCorsSettingsTests(SimpleTestCase):
         })
         script = (
             'from django.conf import settings; '
-            'origins=("http://localhost:3000", "http://127.0.0.1:3000"); '
+            'origins=("http://localhost:3000", "http://127.0.0.1:3000", '
+            '"http://localhost:3001", "http://127.0.0.1:3001", '
+            '"http://localhost:3002", "http://127.0.0.1:3002"); '
             'assert all(origin in settings.CORS_ALLOWED_ORIGINS for origin in origins); '
             'assert all(origin in settings.CSRF_TRUSTED_ORIGINS for origin in origins)'
         )
