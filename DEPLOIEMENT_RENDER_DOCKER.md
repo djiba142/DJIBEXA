@@ -1,73 +1,73 @@
-# Déploiement DJIBEXA — Render et Docker
+﻿# DÃ©ploiement DJIBEXA â€” Render et Docker
 
-## État et limites
+## Ã‰tat et limites
 
-Le dépôt contient maintenant une configuration de préproduction Render et un
-environnement Docker local composé de PostgreSQL, Django et TanStack Start.
-La configuration Render est déclarative : aucun service n'a été créé et aucune
-migration n'a été exécutée sur une base réelle.
+Le dÃ©pÃ´t contient maintenant une configuration de prÃ©production Render et un
+environnement Docker local composÃ© de PostgreSQL, Django et TanStack Start.
+La configuration Render est dÃ©clarative : aucun service n'a Ã©tÃ© crÃ©Ã© et aucune
+migration n'a Ã©tÃ© exÃ©cutÃ©e sur une base rÃ©elle.
 
-DJIBEXA n'a pas encore passé l'audit complet d'isolation endpoint par endpoint.
-Ne pas ouvrir l'inscription ni connecter une deuxième entreprise avant la
-validation de toutes les API, fichiers, imports/exports, tâches différées et
-relations inter-entreprises. Les services Render décrits ici nécessitent des
+DJIBEXA n'a pas encore passÃ© l'audit complet d'isolation endpoint par endpoint.
+Ne pas ouvrir l'inscription ni connecter une deuxiÃ¨me entreprise avant la
+validation de toutes les API, fichiers, imports/exports, tÃ¢ches diffÃ©rÃ©es et
+relations inter-entreprises. Les services Render dÃ©crits ici nÃ©cessitent des
 ressources payantes pour PostgreSQL et la conservation des fichiers.
 
-## Préparer Render
+## PrÃ©parer Render
 
-1. Pousser la branche contenant `render.yaml`, puis créer une nouvelle Blueprint
-   dans Render et sélectionner ce dépôt.
-   Le frontend est un dépôt Git distinct déclaré comme sous-module : pousser
+1. Pousser la branche contenant `render.yaml`, puis crÃ©er une nouvelle Blueprint
+   dans Render et sÃ©lectionner ce dÃ©pÃ´t.
+   Le frontend est un dÃ©pÃ´t Git distinct dÃ©clarÃ© comme sous-module : pousser
    d'abord son commit sur `djiba142/image-ad-studio`, puis le commit principal.
-   Vérifier que le checkout Render initialise le sous-module avant d'utiliser
-   `rootDir: frontend` ; sinon, configurer le service frontend depuis son dépôt
-   dédié plutôt que de lancer un build incomplet.
-2. Vérifier la région Frankfurt et les noms `nexora-api`, `nexora-web` et
-   `nexora-db`. Ils doivent rester cohérents avec les hôtes et origines définis
-   dans le Blueprint, ou être mis à jour ensemble.
-3. Fournir les variables SMTP demandées par Render (`EMAIL_HOST`,
+   VÃ©rifier que le checkout Render initialise le sous-module avant d'utiliser
+   `rootDir: frontend` ; sinon, configurer le service frontend depuis son dÃ©pÃ´t
+   dÃ©diÃ© plutÃ´t que de lancer un build incomplet.
+2. VÃ©rifier la rÃ©gion Frankfurt et les noms `nexora-api`, `nexora-web` et
+   `nexora-db`. Ils doivent rester cohÃ©rents avec les hÃ´tes et origines dÃ©finis
+   dans le Blueprint, ou Ãªtre mis Ã  jour ensemble.
+3. Fournir les variables SMTP demandÃ©es par Render (`EMAIL_HOST`,
    `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`) avant le
-   premier déploiement. Ne pas placer les identifiants dans Git.
-4. Vérifier le coût et la taille des ressources avant d'appliquer le Blueprint :
+   premier dÃ©ploiement. Ne pas placer les identifiants dans Git.
+4. VÃ©rifier le coÃ»t et la taille des ressources avant d'appliquer le Blueprint :
    deux services `starter`, un disque persistant de 1 Go et un PostgreSQL
-   `basic-256mb` sont déclarés.
-5. Les builds déploient séparément l'API et le SSR. Le `preDeployCommand` lance
+   `basic-256mb` sont dÃ©clarÃ©s.
+5. Les builds dÃ©ploient sÃ©parÃ©ment l'API et le SSR. Le `preDeployCommand` lance
    `migrate` contre le PostgreSQL Render ; examiner le plan des migrations et
-   les sauvegardes avant d'autoriser ce premier déploiement.
-6. Le PostgreSQL créé par le Blueprint est vide. `DATABASE_URL` est interprété
+   les sauvegardes avant d'autoriser ce premier dÃ©ploiement.
+6. Le PostgreSQL crÃ©Ã© par le Blueprint est vide. `DATABASE_URL` est interprÃ©tÃ©
    par Django ; il ne copie pas `backend/db.sqlite3`. Restaurer ou importer les
-   données de l'entreprise dans une base de préproduction et comparer les
+   donnÃ©es de l'entreprise dans une base de prÃ©production et comparer les
    volumes, relations, utilisateurs, ventes, factures et mouvements avant toute
    bascule de production.
-7. Le disque `/var/data` conserve les médias, les imports fournisseurs, les
-   fichiers privés de factures et de vitrines lors des redéploiements. Mettre en
+7. Le disque `/var/data` conserve les mÃ©dias, les imports fournisseurs, les
+   fichiers privÃ©s de factures et de vitrines lors des redÃ©ploiements. Mettre en
    place et tester une sauvegarde distincte de PostgreSQL et de ce disque.
-8. Vérifier `https://nexora-api.onrender.com/healthz/`, l'authentification
+8. VÃ©rifier `https://nexora-api.onrender.com/healthz/`, l'authentification
    depuis l'URL frontend, les cookies de session/CSRF, les envois SMTP et les
-   téléchargements de fichiers privés avant la recette.
+   tÃ©lÃ©chargements de fichiers privÃ©s avant la recette.
 
-Le Blueprint ne crée pas de tâche planifiée WhatsApp. Les rappels automatiques
-ne doivent être activés qu'après configuration du fournisseur, vérification des
-consentements et choix du coût/fréquence d'un service Cron Render. Ne pas lancer
-manuellement le traitement sur des données réelles sans validation.
+Le Blueprint ne crÃ©e pas de tÃ¢che planifiÃ©e WhatsApp. Les rappels automatiques
+ne doivent Ãªtre activÃ©s qu'aprÃ¨s configuration du fournisseur, vÃ©rification des
+consentements et choix du coÃ»t/frÃ©quence d'un service Cron Render. Ne pas lancer
+manuellement le traitement sur des donnÃ©es rÃ©elles sans validation.
 
-## Démarrer localement avec Docker Compose
+## DÃ©marrer localement avec Docker Compose
 
-Prérequis : Docker Desktop avec Docker Compose v2.
+PrÃ©requis : Docker Desktop avec Docker Compose v2.
 
-Depuis la racine du dépôt, créer le fichier local ignoré par Git :
+Depuis la racine du dÃ©pÃ´t, crÃ©er le fichier local ignorÃ© par Git :
 
 ```powershell
 Copy-Item deploy\docker.env.example deploy\docker.env
 ```
 
-Après un clonage initial du dépôt principal, récupérer aussi le frontend :
+AprÃ¨s un clonage initial du dÃ©pÃ´t principal, rÃ©cupÃ©rer aussi le frontend :
 
 ```powershell
 git submodule update --init --recursive
 ```
 
-Remplacer `POSTGRES_PASSWORD` et `DB_PASSWORD` par la même valeur locale, puis
+Remplacer `POSTGRES_PASSWORD` et `DB_PASSWORD` par la mÃªme valeur locale, puis
 lancer :
 
 ```powershell
@@ -79,53 +79,53 @@ docker compose up
 
 - Frontend : `http://localhost:3000`
 - API : `http://localhost:8000`
-- Contrôle API + PostgreSQL : `http://localhost:8000/healthz/`
+- ContrÃ´le API + PostgreSQL : `http://localhost:8000/healthz/`
 
-Compose lie le frontend et l'API à `127.0.0.1` uniquement, attend PostgreSQL
+Compose lie le frontend et l'API Ã  `127.0.0.1` uniquement, attend PostgreSQL
 avant de lancer Django et conserve PostgreSQL et les uploads dans des volumes
-Docker nommés. Les migrations sont une étape explicite, exécutée une fois avant
-le démarrage de l'application ; elles ne sont pas relancées au redémarrage de
-chaque conteneur. Les fichiers statiques sont collectés pendant la construction
-de l'image backend. `GUNICORN_WORKERS` permet de régler les workers, avec une
-valeur locale par défaut de 2.
+Docker nommÃ©s. Les migrations sont une Ã©tape explicite, exÃ©cutÃ©e une fois avant
+le dÃ©marrage de l'application ; elles ne sont pas relancÃ©es au redÃ©marrage de
+chaque conteneur. Les fichiers statiques sont collectÃ©s pendant la construction
+de l'image backend. `GUNICORN_WORKERS` permet de rÃ©gler les workers, avec une
+valeur locale par dÃ©faut de 2.
 
-`docker compose down` conserve les volumes ; ne pas ajouter `-v` si les données
-locales doivent être gardées.
+`docker compose down` conserve les volumes ; ne pas ajouter `-v` si les donnÃ©es
+locales doivent Ãªtre gardÃ©es.
 
-Le fichier `deploy/docker.env.example` est réservé au développement. Ne pas
-réutiliser ses valeurs, `DJANGO_DEBUG=true` ou le serveur de développement en
+Le fichier `deploy/docker.env.example` est rÃ©servÃ© au dÃ©veloppement. Ne pas
+rÃ©utiliser ses valeurs, `DJANGO_DEBUG=true` ou le serveur de dÃ©veloppement en
 production. Pour une installation Docker sur serveur :
 
-1. Construire les images avec `docker compose build`, puis démarrer uniquement
+1. Construire les images avec `docker compose build`, puis dÃ©marrer uniquement
    PostgreSQL avec `docker compose up -d db`.
-2. Effectuer et vérifier une sauvegarde de la base et des fichiers persistants.
-3. Exécuter `docker compose run --rm backend python manage.py migrate --noinput`
-   une seule fois après revue des migrations.
-4. Démarrer l'application derrière un reverse proxy HTTPS. Garder les ports
-   Docker liés à `127.0.0.1` lorsque le proxy tourne sur l'hôte ; si le proxy
-   tourne dans Docker, utiliser un réseau privé commun et ne pas publier les
+2. Effectuer et vÃ©rifier une sauvegarde de la base et des fichiers persistants.
+3. ExÃ©cuter `docker compose run --rm backend python manage.py migrate --noinput`
+   une seule fois aprÃ¨s revue des migrations.
+4. DÃ©marrer l'application derriÃ¨re un reverse proxy HTTPS. Garder les ports
+   Docker liÃ©s Ã  `127.0.0.1` lorsque le proxy tourne sur l'hÃ´te ; si le proxy
+   tourne dans Docker, utiliser un rÃ©seau privÃ© commun et ne pas publier les
    ports applicatifs sur toutes les interfaces.
-5. Fournir des secrets forts, `DJANGO_DEBUG=false`, des hôtes et origines
+5. Fournir des secrets forts, `DJANGO_DEBUG=false`, des hÃ´tes et origines
    explicites, PostgreSQL et un stockage persistant. Ne pas utiliser les valeurs
    de l'exemple.
 
-Ne pas démarrer plusieurs réplicas Compose partageant la même base sans une
-étape de migration unique et un reverse proxy/load balancer approprié.
-Dimensionner `GUNICORN_WORKERS` après mesure de la mémoire par worker et de la
-charge ; la valeur `2` est seulement une valeur de départ, pas une recommandation
-de capacité pour la production.
+Ne pas dÃ©marrer plusieurs rÃ©plicas Compose partageant la mÃªme base sans une
+Ã©tape de migration unique et un reverse proxy/load balancer appropriÃ©.
+Dimensionner `GUNICORN_WORKERS` aprÃ¨s mesure de la mÃ©moire par worker et de la
+charge ; la valeur `2` est seulement une valeur de dÃ©part, pas une recommandation
+de capacitÃ© pour la production.
 
-## Vérifications avant mise en service
+## VÃ©rifications avant mise en service
 
 - Confirmer les variables d'environnement et les domaines dans le tableau de
-  bord Render ; ne pas présumer que les URLs `.onrender.com` resteront les noms
-  définitifs si des domaines personnalisés sont ensuite ajoutés.
-- Tester l'envoi/réception de cookies dans un navigateur réel sur les domaines
-  déployés et vérifier les protections CORS/CSRF.
-- Vérifier les restaurations de sauvegardes et la persistance du disque après
-  redéploiement.
-- Créer les comptes plateforme et entreprise par les parcours d'administration
-  contrôlés ; ne pas importer de base ni créer de comptes privilégiés sans
-  validation des données et des rôles.
-- Exécuter la suite de tests PostgreSQL et l'audit multi-tenant complet sur une
-  copie isolée avant le pilote.
+  bord Render ; ne pas prÃ©sumer que les URLs `.onrender.com` resteront les noms
+  dÃ©finitifs si des domaines personnalisÃ©s sont ensuite ajoutÃ©s.
+- Tester l'envoi/rÃ©ception de cookies dans un navigateur rÃ©el sur les domaines
+  dÃ©ployÃ©s et vÃ©rifier les protections CORS/CSRF.
+- VÃ©rifier les restaurations de sauvegardes et la persistance du disque aprÃ¨s
+  redÃ©ploiement.
+- CrÃ©er les comptes plateforme et entreprise par les parcours d'administration
+  contrÃ´lÃ©s ; ne pas importer de base ni crÃ©er de comptes privilÃ©giÃ©s sans
+  validation des donnÃ©es et des rÃ´les.
+- ExÃ©cuter la suite de tests PostgreSQL et l'audit multi-tenant complet sur une
+  copie isolÃ©e avant le pilote.
