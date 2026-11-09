@@ -1,3 +1,6 @@
+import hashlib
+import uuid
+
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.tokens import default_token_generator
@@ -15,9 +18,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiTypes, extend_schema, extend_schema_view
 
-from core.models import AuditLog, PlatformSettings, Tenant
-from core.mailer import send_branded_mail
-from core.onboarding import send_password_setup_email, send_temporary_password_email
+from core.models import (
+    AuditLog,
+    Invitation,
+    PlatformSettings,
+    Tenant,
+    TenantMembership,
+)
+from core.onboarding import send_password_setup_email
+from core.outbox import queue_branded_email
 from .models import User
 from .permissions import IsTenantAdminUser
 from .serializers import LoginSerializer, LogoutResponseSerializer, PinResetConfirmSerializer, PinResetRequestSerializer, UserProfileSerializer, UserSerializer
@@ -35,14 +44,18 @@ class UserListView(generics.ListCreateAPIView):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        temporary_password = get_random_string(24)
+        if request.data.get('pin_code'):
+            raise serializers.ValidationError({
+                'pin_code': 'Le compte doit choisir ses identifiants depuis le lien d’invitation.',
+            })
         request_data = request.data.copy()
-        request_data['password'] = temporary_password
+        request_data['password'] = get_random_string(48)
+        request_data.pop('pin_code', None)
         serializer = self.get_serializer(data=request_data)
         serializer.is_valid(raise_exception=True)
         if not serializer.validated_data.get('email'):
             raise serializers.ValidationError({
-                'email': 'Une adresse e-mail est nécessaire pour envoyer le mot de passe provisoire.',
+                'email': 'Une adresse e-mail est nécessaire pour envoyer l’invitation.',
             })
         tenant = Tenant.objects.select_for_update().get(pk=request.user.tenant_id)
         platform_settings = PlatformSettings.objects.select_for_update().get(pk=1)
@@ -66,7 +79,29 @@ class UserListView(generics.ListCreateAPIView):
                 'detail': 'La limite globale d’utilisateurs actifs est atteinte.',
             })
         user = serializer.save(tenant=tenant, must_change_password=True)
-        send_temporary_password_email(user, tenant, temporary_password)
+        user.set_unusable_password()
+        user.invitation_pending = True
+        user.save(update_fields=[
+            'password',
+            'invitation_pending',
+            'must_change_password',
+            'updated_at',
+        ])
+        role = user.role if user.role in dict(TenantMembership.ROLE_CHOICES) else 'other'
+        TenantMembership.objects.create(
+            tenant=tenant,
+            user=user,
+            role=role,
+            is_active=False,
+            is_primary_admin=(
+                role == 'admin'
+                and not TenantMembership.objects.filter(
+                    tenant=tenant,
+                    is_primary_admin=True,
+                ).exists()
+            ),
+        )
+        send_password_setup_email(user, tenant, created_by=request.user)
         AuditLog.objects.create(
             user=request.user,
             action='create',
@@ -98,6 +133,22 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
             not instance.is_active
             and serializer.validated_data.get('is_active', instance.is_active)
         )
+        requested_role = serializer.validated_data.get('role', instance.role)
+        membership = TenantMembership.objects.select_for_update().filter(
+            tenant_id=instance.tenant_id,
+            user=instance,
+        ).first()
+        if (
+            membership
+            and membership.is_primary_admin
+            and (
+                requested_role != 'admin'
+                or not serializer.validated_data.get('is_active', instance.is_active)
+            )
+        ):
+            raise serializers.ValidationError({
+                'detail': 'Transférez le rôle d’administrateur principal avant de modifier ce compte.',
+            })
         if will_activate:
             tenant = Tenant.objects.select_for_update().get(
                 pk=request.user.tenant_id,
@@ -123,6 +174,32 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
                     'detail': 'La limite globale d’utilisateurs actifs est atteinte.',
                 })
         user = serializer.save()
+        membership_role = (
+            user.role
+            if user.role in dict(TenantMembership.ROLE_CHOICES)
+            else 'other'
+        )
+        if membership is None:
+            TenantMembership.objects.create(
+                tenant_id=user.tenant_id,
+                user=user,
+                role=membership_role,
+                is_active=user.is_active and not user.invitation_pending,
+                is_primary_admin=(
+                    membership_role == 'admin'
+                    and not TenantMembership.objects.filter(
+                        tenant_id=user.tenant_id,
+                        is_active=True,
+                        is_primary_admin=True,
+                    ).exists()
+                ),
+            )
+        else:
+            membership.role = membership_role
+            membership.is_active = user.is_active and not user.invitation_pending
+            if membership_role != 'admin':
+                membership.is_primary_admin = False
+            membership.save()
         AuditLog.objects.create(
             user=request.user,
             action='update',
@@ -191,6 +268,15 @@ class LoginView(APIView):
 
         if not user.is_active:
             return Response({'success': False, 'message': 'Compte inactif.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if user.invitation_pending:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Activez votre compte avec le lien reçu par e-mail.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if user.locked_until and user.locked_until > timezone.now():
             return Response({'success': False, 'message': 'Compte temporairement bloqué. Réessayez plus tard.'}, status=status.HTTP_403_FORBIDDEN)
@@ -295,14 +381,15 @@ class PinResetRequestView(APIView):
         }
         if user:
             if user.invitation_pending and user.tenant_id:
-                send_password_setup_email(user, user.tenant)
+                if user.tenant.status_at() == 'active':
+                    send_password_setup_email(user, user.tenant)
             else:
                 token = default_token_generator.make_token(user)
                 reset_url = (
                     f'{settings.FRONTEND_BASE_URL.rstrip("/")}/reset-password'
                     f'?uid={urlsafe_base64_encode(force_bytes(user.pk))}&token={token}'
                 )
-                send_branded_mail(
+                queue_branded_email(
                     subject='Réinitialisation de votre mot de passe — DJIBEXA',
                     message=(
                         f'Bonjour {user.display_name},\n\n'
@@ -311,8 +398,8 @@ class PinResetRequestView(APIView):
                         f'Si le bouton ne fonctionne pas, copiez ce lien :\n{reset_url}\n\n'
                         'Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.'
                     ),
-                    recipient_list=[user.email],
-                    fail_silently=False,
+                    recipient=user.email,
+                    idempotency_key=f'password-reset:{uuid.uuid4()}',
                     action_url=reset_url,
                     action_label='Choisir un nouveau mot de passe',
                 )
@@ -334,7 +421,23 @@ class PinResetConfirmView(APIView):
         user = User.objects.select_for_update().filter(pk=user_id).first() if user_id else None
         if user and not user.is_active and not user.invitation_pending:
             user = None
-        if not user or not default_token_generator.check_token(user, serializer.validated_data['token']):
+        token = serializer.validated_data['token']
+        invitation = None
+        if user and user.invitation_pending:
+            token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+            invitation = Invitation.objects.select_for_update().filter(
+                user=user,
+                token_hash=token_hash,
+                used_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+            ).first()
+        valid_token = (
+            invitation is not None
+            if user and user.invitation_pending
+            else bool(user and default_token_generator.check_token(user, token))
+        )
+        if not user or not valid_token:
             return Response({'success': False, 'message': 'Le lien de réinitialisation est invalide ou expiré.'}, status=status.HTTP_400_BAD_REQUEST)
         password = serializer.validated_data['password']
         try:
@@ -347,11 +450,11 @@ class PinResetConfirmView(APIView):
                 if user.tenant_id
                 else None
             )
-            if tenant is None:
+            if tenant is None or tenant.status_at() != 'active':
                 return Response(
                     {
                         'success': False,
-                        'message': 'L’espace de cette invitation est indisponible.',
+                        'message': 'L’espace de cette invitation n’est pas disponible.',
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -382,6 +485,9 @@ class PinResetConfirmView(APIView):
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+            invitation.used_at = timezone.now()
+            invitation.revoked_at = invitation.used_at
+            invitation.save(update_fields=['used_at', 'revoked_at'])
         user.set_password(password)
         user.is_active = True
         user.invitation_pending = False
@@ -397,6 +503,27 @@ class PinResetConfirmView(APIView):
             'locked_until',
             'updated_at',
         ])
+        if invitation is not None:
+            membership = TenantMembership.objects.select_for_update().filter(
+                tenant_id=user.tenant_id,
+                user=user,
+            ).first()
+            if membership is None:
+                role = user.role if user.role in dict(TenantMembership.ROLE_CHOICES) else 'other'
+                membership = TenantMembership(
+                    tenant_id=user.tenant_id,
+                    user=user,
+                    role=role,
+                    is_primary_admin=(
+                        role == 'admin'
+                        and not TenantMembership.objects.filter(
+                            tenant_id=user.tenant_id,
+                            is_primary_admin=True,
+                        ).exists()
+                    ),
+                )
+            membership.is_active = True
+            membership.save()
         return Response({'success': True, 'message': 'Mot de passe réinitialisé. Vous pouvez vous connecter.'}, status=status.HTTP_200_OK)
 
 

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 620" role="img" aria-labelledby="title desc">
+  <title id="title">DJIBEXA, organiser les activités</title>
+  <desc id="desc">Illustration originale d'une équipe qui organise des activités autour d'un espace de travail partagé.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E9F3FC"/>
+      <stop offset="1" stop-color="#D5E7F7"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2678C8"/>
+      <stop offset="1" stop-color="#174A78"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#10243A" flood-opacity=".12"/>
+    </filter>
+  </defs>
+  <rect x="18" y="18" width="724" height="584" rx="42" fill="url(#background)"/>
+  <circle cx="617" cy="133" r="82" fill="#fff" opacity=".55"/>
+  <circle cx="130" cy="479" r="80" fill="#fff" opacity=".46"/>
+  <path d="M18 453c119-40 219-37 326-4 125 38 234 28 398-36v189H18z" fill="#D0E3F4"/>
+  <g filter="url(#shadow)">
+    <rect x="194" y="120" width="395" height="276" rx="24" fill="#fff"/>
+    <rect x="215" y="141" width="353" height="235" rx="14" fill="#F5F7FA"/>
+    <rect x="215" y="141" width="353" height="45" rx="14" fill="#10243A"/>
+    <circle cx="239" cy="163" r="5" fill="#9DC9F1"/>
+    <circle cx="256" cy="163" r="5" fill="#9DC9F1" opacity=".7"/>
+    <rect x="278" y="157" width="91" height="12" rx="6" fill="#fff" opacity=".85"/>
+    <rect x="235" y="205" width="142" height="69" rx="12" fill="#E4EFF8"/>
+    <rect x="249" y="219" width="68" height="7" rx="3.5" fill="#7892AB"/>
+    <rect x="249" y="235" width="108" height="15" rx="7.5" fill="#174A78"/>
+    <rect x="390" y="205" width="157" height="69" rx="12" fill="#fff"/>
+    <path d="M409 252v-14h14v14m9 0v-28h14v28m9 0v-39h14v39m9 0v-20h14v20" fill="none" stroke="#2678C8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="235" y="289" width="312" height="68" rx="12" fill="#fff"/>
+    <path d="M254 332l35-22 31 12 35-20 34 15 34-28 34 11 33-16" fill="none" stroke="#2678C8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="289" cy="310" r="5" fill="#174A78"/>
+    <circle cx="355" cy="302" r="5" fill="#174A78"/>
+    <circle cx="423" cy="289" r="5" fill="#174A78"/>
+    <circle cx="490" cy="284" r="5" fill="#174A78"/>
+  </g>
+  <g>
+    <path d="M112 429h530l-41 27H153z" fill="#10243A"/>
+    <path d="M153 456h448l-28 20H181z" fill="#174A78"/>
+    <rect x="329" y="400" width="115" height="10" rx="5" fill="#9CB2C8"/>
+    <rect x="346" y="410" width="80" height="6" rx="3" fill="#C5D3E1"/>
+  </g>
+  <g>
+    <path d="M92 395c0-48 24-76 62-76s62 28 62 76v84H92z" fill="#174A78"/>
+    <circle cx="154" cy="293" r="36" fill="#C98D69"/>
+    <path d="M118 291c0-33 20-52 45-52 29 0 46 21 44 50-12-10-24-18-43-19-14 11-27 17-46 21z" fill="#10243A"/>
+    <path d="M119 342l-47 41 16 15 60-33" fill="#C98D69"/>
+    <path d="M196 341l44 32-13 18-51-26" fill="#C98D69"/>
+    <path d="M264 475h58l-13 23h-45z" fill="#10243A"/>
+    <path d="M149 475h54l12 23h-69z" fill="#10243A"/>
+  </g>
+  <g>
+    <path d="M512 398c0-45 23-72 59-72s59 27 59 72v80H512z" fill="#2678C8"/>
+    <circle cx="571" cy="298" r="34" fill="#8C5D47"/>
+    <path d="M538 297c-2-29 17-48 41-48 27 0 43 20 41 48-12-12-27-18-42-17-12 9-25 14-40 17z" fill="#10243A"/>
+    <path d="M533 345l-36 37 15 17 46-33" fill="#8C5D47"/>
+    <path d="M610 343l34 29-13 18-45-24" fill="#8C5D47"/>
+    <path d="M536 475h52l-10 23h-48z" fill="#10243A"/>
+    <path d="M590 475h50l12 23h-65z" fill="#10243A"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="69" y="112" width="100" height="68" rx="16" fill="#fff"/>
+    <circle cx="96" cy="146" r="15" fill="#E7F0F9"/>
+    <path d="m89 146 5 5 10-12" fill="none" stroke="#2678C8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="119" y="137" width="35" height="6" rx="3" fill="#174A78"/>
+    <rect x="119" y="150" width="25" height="5" rx="2.5" fill="#9CB2C8"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="593" y="216" width="91" height="73" rx="16" fill="#fff"/>
+    <rect x="611" y="234" width="55" height="9" rx="4.5" fill="#E7F0F9"/>
+    <rect x="611" y="251" width="39" height="8" rx="4" fill="#2678C8"/>
+    <rect x="611" y="267" width="48" height="6" rx="3" fill="#9CB2C8"/>
+  </g>
+</svg>

@@ -15,6 +15,7 @@ import { Toaster } from "../components/ui/sonner";
 import { AuthProvider } from "../lib/auth";
 import { LocaleProvider, useLocale } from "../lib/locale";
 import appCss from "../styles.css?url";
+import { toast } from "sonner";
 
 function NotFoundComponent() {
   const { t } = useLocale();
@@ -78,9 +79,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "ERP DJIBEXA" },
       { name: "description", content: "Gestion commerciale, ventes et stocks." },
+      { name: "theme-color", content: "#10243A" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
       { name: "author", content: "DJIBEXA" },
       { property: "og:title", content: "ERP DJIBEXA" },
       { property: "og:description", content: "Gestion commerciale, ventes et stocks." },
@@ -92,7 +97,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/brand/kourouma-mark.svg", type: "image/svg+xml" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", href: "/brand/djibexa-icon-192.png", type: "image/png" },
+      {
+        rel: "apple-touch-icon",
+        href: "/brand/djibexa-icon-192.png",
+        type: "image/png",
+      },
     ],
   }),
   shellComponent: RootShell,
@@ -124,6 +135,7 @@ function RootComponent() {
       <AuthProvider>
         <LocaleProvider>
           <LocalizedPageTitle pathname={pathname} />
+          <PwaRuntime />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster position="top-right" richColors />
@@ -131,6 +143,71 @@ function RootComponent() {
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+function PwaRuntime() {
+  const { t } = useLocale();
+
+  useEffect(() => {
+    if (!import.meta.env.PROD || !("serviceWorker" in navigator) || !window.isSecureContext) {
+      return;
+    }
+
+    let reloadAfterActivation = false;
+    let active = true;
+    let registration: ServiceWorkerRegistration | null = null;
+    let installingWorker: ServiceWorker | null = null;
+
+    const showUpdateNotice = () => {
+      if (!registration?.waiting) return;
+      toast.info(t("pwa.updateAvailable"), {
+        duration: Infinity,
+        action: {
+          label: t("pwa.reload"),
+          onClick: () => {
+            reloadAfterActivation = true;
+            registration?.waiting?.postMessage({ type: "SKIP_WAITING" });
+          },
+        },
+      });
+    };
+    const observeInstallingWorker = () => {
+      installingWorker?.removeEventListener("statechange", handleInstallingStateChange);
+      installingWorker = registration?.installing ?? null;
+      installingWorker?.addEventListener("statechange", handleInstallingStateChange);
+    };
+    const handleInstallingStateChange = () => {
+      if (installingWorker?.state === "installed" && navigator.serviceWorker.controller) {
+        showUpdateNotice();
+      }
+    };
+    const handleControllerChange = () => {
+      if (reloadAfterActivation) window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
+    void navigator.serviceWorker
+      .register("/service-worker.js", { scope: "/", updateViaCache: "none" })
+      .then((serviceWorkerRegistration) => {
+        if (!active) return;
+        registration = serviceWorkerRegistration;
+        registration.addEventListener("updatefound", observeInstallingWorker);
+        observeInstallingWorker();
+        showUpdateNotice();
+      })
+      .catch((error: unknown) => {
+        console.error("Impossible d’activer le service worker DJIBEXA.", error);
+      });
+
+    return () => {
+      active = false;
+      navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
+      registration?.removeEventListener("updatefound", observeInstallingWorker);
+      installingWorker?.removeEventListener("statechange", handleInstallingStateChange);
+    };
+  }, [t]);
+
+  return null;
 }
 
 function LocalizedPageTitle({ pathname }: { pathname: string }) {

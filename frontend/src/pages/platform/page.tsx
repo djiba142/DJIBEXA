@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -7,12 +7,16 @@ import {
   Clock3,
   Globe2,
   ArrowUpRight,
+  BellRing,
+  Boxes,
+  CreditCard,
   MailPlus,
   Pause,
   Play,
   Plus,
   RefreshCw,
   Save,
+  PackageCheck,
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
@@ -88,7 +92,7 @@ const PLATFORM_COPY = {
     overview: "Vue d’ensemble",
     ownerRole: "Propriétaire de la plateforme",
     title: "Administration centrale",
-    eyebrow: "Administration centrale",
+    eyebrow: "DJIBEXA Control Center",
     description:
       "Gérez les espaces et les licences du pilote sans consulter les données commerciales des entreprises.",
     refresh: "Actualiser",
@@ -146,9 +150,8 @@ const PLATFORM_COPY = {
     sendingInvitation: "Envoi…",
     invitationSent:
       "Invitation envoyée. L’administrateur pourra choisir son mot de passe depuis le lien reçu.",
-    invitationQueued:
-      "Invitation enregistrée. Le lien de configuration sera envoyé automatiquement à l’activation de l’espace.",
-    adminAlreadyExists: "Un compte existe déjà dans cet espace.",
+    invitationQueued: "Invitation enregistrée. Le lien sécurisé est placé en file de livraison.",
+    adminAlreadyExists: "Le premier administrateur est déjà invité dans cet espace.",
     activate: "Démarrer l’essai",
     suspend: "Suspendre l’accès",
     resume: "Reprendre l’essai",
@@ -185,7 +188,7 @@ const PLATFORM_COPY = {
     overview: "Overview",
     ownerRole: "Platform owner",
     title: "Central administration",
-    eyebrow: "Central administration",
+    eyebrow: "DJIBEXA Control Center",
     description: "Manage pilot spaces and licenses without viewing companies’ commercial data.",
     refresh: "Refresh",
     unavailable: "Control Center is unavailable",
@@ -242,9 +245,8 @@ const PLATFORM_COPY = {
     sendingInvitation: "Sending…",
     invitationSent:
       "Invitation sent. The administrator can choose a password using the emailed link.",
-    invitationQueued:
-      "Invitation recorded. The password setup link will be sent automatically when the space is activated.",
-    adminAlreadyExists: "An account already exists in this space.",
+    invitationQueued: "Invitation recorded. The secure link is queued for delivery.",
+    adminAlreadyExists: "The first administrator has already been invited to this space.",
     activate: "Start trial",
     suspend: "Suspend access",
     resume: "Resume trial",
@@ -281,7 +283,7 @@ const PLATFORM_COPY = {
     overview: "نظرة عامة",
     ownerRole: "مالك المنصة",
     title: "الإدارة المركزية",
-    eyebrow: "الإدارة المركزية",
+    eyebrow: "مركز التحكم DJIBEXA",
     description:
       "إدارة مساحات البرنامج التجريبي والتراخيص دون الاطلاع على البيانات التجارية للشركات.",
     refresh: "تحديث",
@@ -336,8 +338,8 @@ const PLATFORM_COPY = {
     sendInvitation: "إرسال الدعوة",
     sendingInvitation: "جارٍ الإرسال…",
     invitationSent: "تم إرسال الدعوة. رابط إعداد كلمة المرور للاستخدام مرة واحدة.",
-    invitationQueued: "تم تسجيل الدعوة. سيُرسل رابط إعداد كلمة المرور تلقائيًا عند تفعيل المساحة.",
-    adminAlreadyExists: "يوجد حساب بالفعل في هذه المساحة.",
+    invitationQueued: "تم تسجيل الدعوة. أُضيف الرابط الآمن إلى قائمة الإرسال.",
+    adminAlreadyExists: "تمت دعوة المدير الأول إلى هذه المساحة بالفعل.",
     activate: "بدء التجربة",
     suspend: "تعليق الوصول",
     resume: "استئناف التجربة",
@@ -373,7 +375,7 @@ const PLATFORM_COPY = {
     overview: "概览",
     ownerRole: "平台所有者",
     title: "中央管理",
-    eyebrow: "中央管理",
+    eyebrow: "DJIBEXA 控制中心",
     description: "管理试点空间和许可证，不查看企业的商业数据。",
     refresh: "刷新",
     unavailable: "控制中心不可用",
@@ -426,8 +428,8 @@ const PLATFORM_COPY = {
     sendInvitation: "发送邀请",
     sendingInvitation: "正在发送…",
     invitationSent: "邀请已发送。密码设置链接仅可使用一次。",
-    invitationQueued: "邀请已登记。空间启用时将自动发送密码设置链接。",
-    adminAlreadyExists: "此空间中已存在账户。",
+    invitationQueued: "邀请已登记，安全链接已加入发送队列。",
+    adminAlreadyExists: "首位管理员已受邀加入此空间。",
     activate: "开始试用",
     suspend: "暂停访问",
     resume: "恢复试用",
@@ -524,7 +526,11 @@ function MetricCard({
 
 function PlatformOverviewPage() {
   const { isPlatformAdmin, loading: authLoading } = useAuth();
-  const { language } = useLocale();
+  const { language, t } = useLocale();
+  const createFormOpen = useRouterState({
+    select: (state) => state.location.hash === "tenant-create",
+  });
+  const navigate = useNavigate();
   const copy = PLATFORM_COPY[language];
   const queryClient = useQueryClient();
   const [tenantName, setTenantName] = useState("");
@@ -564,15 +570,24 @@ function PlatformOverviewPage() {
       setTenantSlug("");
       setTenantMaxUsers("10");
       toast.success(copy.createdSuccess);
+      await navigate({ to: "/platform" });
       await refreshPlatformData();
     },
     onError: (error: Error) => toast.error(copy.actionError, { description: error.message }),
   });
   const tenantAction = useMutation({
     mutationFn: ({ id, action }: { id: number; action: "activate" | "suspend" | "resume" }) =>
-      api.post(`platform/tenants/${id}/${action}/`),
-    onSuccess: async (_data, variables) => {
-      toast.success(copy[TENANT_ACTION_SUCCESS[variables.action]]);
+      api.post<PlatformOverview["tenants"][number] & { invitationEmailQueued?: boolean }>(
+        `platform/tenants/${id}/${action}/`,
+      ),
+    onSuccess: async (_result, variables) => {
+      if (result.invitationEmailQueued) {
+        toast.success(copy.invitationQueued, {
+          description: copy[TENANT_ACTION_SUCCESS[variables.action]],
+        });
+      } else {
+        toast.success(copy[TENANT_ACTION_SUCCESS[variables.action]]);
+      }
       setTenantActionConfirmation(null);
       await refreshPlatformData();
     },
@@ -606,7 +621,7 @@ function PlatformOverviewPage() {
       firstName: string;
       lastName: string;
     }) =>
-      api.post<{ invited: boolean; emailSent: boolean }>(
+      api.post<{ invited: boolean; emailQueued: boolean }>(
         `platform/tenants/${id}/admin-invitation/`,
         {
           username,
@@ -615,8 +630,8 @@ function PlatformOverviewPage() {
           last_name: lastName,
         },
       ),
-    onSuccess: async (result) => {
-      toast.success(result.emailSent ? copy.invitationSent : copy.invitationQueued);
+    onSuccess: async () => {
+      toast.success(copy.invitationQueued);
       await refreshPlatformData();
     },
     onError: (error: Error) => toast.error(copy.actionError, { description: error.message }),
@@ -706,6 +721,42 @@ function PlatformOverviewPage() {
         <div className="bg-primary/5 pointer-events-none absolute -right-12 -top-20 size-72 rounded-full blur-3xl" />
       </section>
 
+      <nav
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+        aria-label={t("platform.quickActions")}
+      >
+        <Button asChild className="justify-start">
+          <Link to="/platform" hash="tenant-create">
+            <Plus aria-hidden="true" />
+            {t("platform.shortcut.newCompany")}
+          </Link>
+        </Button>
+        <Button asChild variant="outline" className="justify-start">
+          <Link to="/platform/$section" params={{ section: "plans" }}>
+            <PackageCheck aria-hidden="true" />
+            {t("platform.shortcut.subscriptions")}
+          </Link>
+        </Button>
+        <Button asChild variant="outline" className="justify-start">
+          <Link to="/platform/$section" params={{ section: "payments" }}>
+            <CreditCard aria-hidden="true" />
+            {t("platform.shortcut.payment")}
+          </Link>
+        </Button>
+        <Button asChild variant="outline" className="justify-start">
+          <Link to="/platform/$section" params={{ section: "modules" }}>
+            <Boxes aria-hidden="true" />
+            {t("platform.shortcut.modules")}
+          </Link>
+        </Button>
+        <Button asChild variant="outline" className="justify-start">
+          <Link to="/platform/$section" params={{ section: "incidents" }}>
+            <BellRing aria-hidden="true" />
+            {t("platform.shortcut.alerts")}
+          </Link>
+        </Button>
+      </nav>
+
       <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Statistiques de la plateforme"
@@ -748,75 +799,86 @@ function PlatformOverviewPage() {
         />
       </section>
 
-      <Card className="border-border/70 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 font-display text-lg">
-            <Plus className="size-4" aria-hidden="true" />
-            {copy.createSpace}
-          </CardTitle>
-          <p className="text-muted-foreground text-sm">{copy.creationNote}</p>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_1fr_0.7fr_auto]"
-            onSubmit={(event) => {
-              event.preventDefault();
-              createTenant.mutate();
-            }}
-          >
-            <label className="space-y-1.5 text-sm font-medium">
-              {copy.spaceName}
-              <input
-                required
-                maxLength={200}
-                value={tenantName}
-                onChange={(event) => setTenantName(event.target.value)}
-                className="border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
-              />
-            </label>
-            <label className="space-y-1.5 text-sm font-medium">
-              {copy.slug}
-              <input
-                required
-                pattern="[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*"
-                maxLength={120}
-                value={tenantSlug}
-                onChange={(event) => setTenantSlug(event.target.value.toLowerCase())}
-                className="border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
-              />
-            </label>
-            <label className="space-y-1.5 text-sm font-medium">
-              {copy.userLimit}
-              <input
-                required
-                type="number"
-                min={1}
-                step={1}
-                value={tenantMaxUsers}
-                onChange={(event) => setTenantMaxUsers(event.target.value)}
-                className="border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
-              />
-            </label>
-            <div className="flex items-end">
-              <Button
-                type="submit"
-                disabled={createTenant.isPending || !tenantName.trim() || !tenantSlug.trim()}
-                className="w-full"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-                {createTenant.isPending ? copy.creating : copy.create}
+      {createFormOpen && (
+        <Card id="tenant-create" className="border-border/70 scroll-mt-6 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1.5">
+                <CardTitle className="flex items-center gap-2 font-display text-lg">
+                  <Plus className="size-4" aria-hidden="true" />
+                  {copy.createSpace}
+                </CardTitle>
+                <p className="text-muted-foreground text-sm">{copy.creationNote}</p>
+              </div>
+              <Button asChild type="button" variant="ghost" size="sm">
+                <Link to="/platform">{copy.cancel}</Link>
               </Button>
             </div>
-          </form>
-          {createTenant.isError && (
-            <p className="text-destructive mt-3 text-sm" role="alert">
-              {createTenant.error instanceof Error ? createTenant.error.message : copy.actionError}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,0.7fr)_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                createTenant.mutate();
+              }}
+            >
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">
+                {copy.spaceName}
+                <input
+                  required
+                  maxLength={200}
+                  value={tenantName}
+                  onChange={(event) => setTenantName(event.target.value)}
+                  className="border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">
+                {copy.slug}
+                <input
+                  required
+                  pattern="[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*"
+                  maxLength={120}
+                  value={tenantSlug}
+                  onChange={(event) => setTenantSlug(event.target.value.toLowerCase())}
+                  className="border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+                />
+              </label>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">
+                {copy.userLimit}
+                <input
+                  required
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={tenantMaxUsers}
+                  onChange={(event) => setTenantMaxUsers(event.target.value)}
+                  className="border-input bg-background focus-visible:ring-ring h-10 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+                />
+              </label>
+              <div className="flex items-end sm:col-span-2 xl:col-span-1">
+                <Button
+                  type="submit"
+                  disabled={createTenant.isPending || !tenantName.trim() || !tenantSlug.trim()}
+                  className="w-full"
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  {createTenant.isPending ? copy.creating : copy.create}
+                </Button>
+              </div>
+            </form>
+            {createTenant.isError && (
+              <p className="text-destructive mt-3 text-sm" role="alert">
+                {createTenant.error instanceof Error
+                  ? createTenant.error.message
+                  : copy.actionError}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <Card className="overflow-hidden border-border/70 shadow-sm">
+      <Card id="company-spaces" className="overflow-hidden border-border/70 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-muted/20 px-5 py-4 sm:px-6">
           <div>
             <CardTitle className="font-display text-lg">{copy.companies}</CardTitle>
@@ -842,7 +904,7 @@ function PlatformOverviewPage() {
               {data.tenants.map((tenant) => (
                 <article
                   key={tenant.id}
-                  className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,1.3fr)] sm:items-center sm:px-6"
+                  className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.9fr)] lg:items-center lg:px-6"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
@@ -892,7 +954,7 @@ function PlatformOverviewPage() {
                       />
                       <Button
                         type="submit"
-                        variant="ghost"
+                        variant="outline"
                         size="icon"
                         aria-label={`${copy.saveLimit}: ${tenant.name}`}
                         disabled={
@@ -910,128 +972,133 @@ function PlatformOverviewPage() {
                       {formatDate(tenant.trialEndsAt, language) ?? copy.notDefined}
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {tenant.status === "pending" && (
-                      <Button
-                        size="sm"
-                        disabled={tenantAction.isPending}
-                        onClick={() => setTenantActionConfirmation({ tenant, action: "activate" })}
-                      >
-                        <Play aria-hidden="true" />
-                        {copy.activate}
-                      </Button>
-                    )}
-                    {tenant.status === "active" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={tenantAction.isPending}
-                        onClick={() => setTenantActionConfirmation({ tenant, action: "suspend" })}
-                      >
-                        <Pause aria-hidden="true" />
-                        {copy.suspend}
-                      </Button>
-                    )}
-                    {tenant.status === "suspended" &&
-                      tenant.trialEndsAt &&
-                      new Date(tenant.trialEndsAt).getTime() > Date.now() && (
+                  <div className="flex min-w-0 flex-col items-start gap-3 lg:col-span-4">
+                    <div className="flex w-full flex-wrap gap-2">
+                      {tenant.status === "pending" && (
                         <Button
                           size="sm"
                           disabled={tenantAction.isPending}
-                          onClick={() => tenantAction.mutate({ id: tenant.id, action: "resume" })}
+                          onClick={() =>
+                            setTenantActionConfirmation({ tenant, action: "activate" })
+                          }
                         >
                           <Play aria-hidden="true" />
-                          {copy.resume}
+                          {copy.activate}
                         </Button>
                       )}
-                    {(tenant.status === "expired" ||
-                      (tenant.status === "suspended" &&
-                        (!tenant.trialEndsAt ||
-                          new Date(tenant.trialEndsAt).getTime() <= Date.now()))) && (
-                      <Badge variant="outline">{copy.resumeUnavailable}</Badge>
-                    )}
-                    {tenant.hasUsers ? (
-                      <span className="text-muted-foreground basis-full text-xs">
-                        {copy.adminAlreadyExists}
-                      </span>
-                    ) : (
-                      <details className="basis-full rounded-md border p-3">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
-                          <MailPlus className="size-4" aria-hidden="true" />
-                          {copy.adminInvitation}
-                        </summary>
-                        <div className="mt-3 space-y-3">
-                          <p className="text-muted-foreground text-xs">
-                            {copy.adminInvitationDescription}
-                          </p>
-                          <form
-                            className="grid gap-2 sm:grid-cols-2"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              const values = new FormData(event.currentTarget);
-                              inviteTenantAdmin.mutate({
-                                id: tenant.id,
-                                username: String(values.get("username") ?? "").trim(),
-                                email: String(values.get("email") ?? "").trim(),
-                                firstName: String(values.get("first_name") ?? "").trim(),
-                                lastName: String(values.get("last_name") ?? "").trim(),
-                              });
-                            }}
+                      {tenant.status === "active" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={tenantAction.isPending}
+                          onClick={() => setTenantActionConfirmation({ tenant, action: "suspend" })}
+                        >
+                          <Pause aria-hidden="true" />
+                          {copy.suspend}
+                        </Button>
+                      )}
+                      {tenant.status === "suspended" &&
+                        tenant.trialEndsAt &&
+                        new Date(tenant.trialEndsAt).getTime() > Date.now() && (
+                          <Button
+                            size="sm"
+                            disabled={tenantAction.isPending}
+                            onClick={() => tenantAction.mutate({ id: tenant.id, action: "resume" })}
                           >
-                            <label className="space-y-1 text-xs font-medium">
-                              {copy.adminUsername}
-                              <input
-                                name="username"
-                                required
-                                maxLength={150}
-                                autoComplete="username"
-                                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs font-medium">
-                              {copy.adminEmail}
-                              <input
-                                name="email"
-                                type="email"
-                                required
-                                maxLength={254}
-                                autoComplete="email"
-                                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs font-medium">
-                              {copy.adminFirstName}
-                              <input
-                                name="first_name"
-                                maxLength={150}
-                                autoComplete="given-name"
-                                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                              />
-                            </label>
-                            <label className="space-y-1 text-xs font-medium">
-                              {copy.adminLastName}
-                              <input
-                                name="last_name"
-                                maxLength={150}
-                                autoComplete="family-name"
-                                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                              />
-                            </label>
-                            <Button
-                              type="submit"
-                              size="sm"
-                              disabled={inviteTenantAdmin.isPending}
-                              className="sm:col-span-2 sm:justify-self-start"
+                            <Play aria-hidden="true" />
+                            {copy.resume}
+                          </Button>
+                        )}
+                      {(tenant.status === "expired" ||
+                        (tenant.status === "suspended" &&
+                          (!tenant.trialEndsAt ||
+                            new Date(tenant.trialEndsAt).getTime() <= Date.now()))) && (
+                        <Badge variant="outline">{copy.resumeUnavailable}</Badge>
+                      )}
+                      {tenant.hasUsers ? (
+                        <p className="bg-muted/40 text-muted-foreground flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                          <MailPlus className="size-4 shrink-0" aria-hidden="true" />
+                          {copy.adminAlreadyExists}
+                        </p>
+                      ) : (
+                        <details className="w-full rounded-md border p-3">
+                          <summary className="focus-visible:ring-ring flex w-fit cursor-pointer list-none items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2">
+                            <MailPlus className="size-4" aria-hidden="true" />
+                            {copy.adminInvitation}
+                          </summary>
+                          <div className="mt-3 space-y-3">
+                            <p className="text-muted-foreground text-xs">
+                              {copy.adminInvitationDescription}
+                            </p>
+                            <form
+                              className="grid gap-2 sm:grid-cols-2"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                const values = new FormData(event.currentTarget);
+                                inviteTenantAdmin.mutate({
+                                  id: tenant.id,
+                                  username: String(values.get("username") ?? "").trim(),
+                                  email: String(values.get("email") ?? "").trim(),
+                                  firstName: String(values.get("first_name") ?? "").trim(),
+                                  lastName: String(values.get("last_name") ?? "").trim(),
+                                });
+                              }}
                             >
-                              <MailPlus className="size-4" aria-hidden="true" />
-                              {inviteTenantAdmin.isPending
-                                ? copy.sendingInvitation
-                                : copy.sendInvitation}
-                            </Button>
-                          </form>
-                        </div>
-                      </details>
-                    )}
+                              <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
+                                {copy.adminUsername}
+                                <input
+                                  name="username"
+                                  required
+                                  maxLength={150}
+                                  autoComplete="username"
+                                  className="border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
+                                />
+                              </label>
+                              <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
+                                {copy.adminEmail}
+                                <input
+                                  name="email"
+                                  type="email"
+                                  required
+                                  maxLength={254}
+                                  autoComplete="email"
+                                  className="border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
+                                />
+                              </label>
+                              <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
+                                {copy.adminFirstName}
+                                <input
+                                  name="first_name"
+                                  maxLength={150}
+                                  autoComplete="given-name"
+                                  className="border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
+                                />
+                              </label>
+                              <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
+                                {copy.adminLastName}
+                                <input
+                                  name="last_name"
+                                  maxLength={150}
+                                  autoComplete="family-name"
+                                  className="border-input bg-background focus-visible:ring-ring h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
+                                />
+                              </label>
+                              <Button
+                                type="submit"
+                                size="sm"
+                                disabled={inviteTenantAdmin.isPending}
+                                className="w-full sm:col-span-2 sm:w-fit"
+                              >
+                                <MailPlus className="size-4" aria-hidden="true" />
+                                {inviteTenantAdmin.isPending
+                                  ? copy.sendingInvitation
+                                  : copy.sendInvitation}
+                              </Button>
+                            </form>
+                          </div>
+                        </details>
+                      )}
+                    </div>
                   </div>
                 </article>
               ))}

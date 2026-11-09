@@ -206,6 +206,13 @@ class AuditLogListView(generics.ListAPIView):
     serializer_class = AuditLogSerializer
     permission_classes = [permissions.IsAuthenticated, role_permission('core')]
 
+    def get_queryset(self):
+        return tenant_scoped_queryset(
+            super().get_queryset(),
+            self.request.user,
+            tenant_field='user__tenant',
+        )
+
 
 class AppSettingListCreateView(generics.ListCreateAPIView):
     queryset = AppSetting.objects.all()

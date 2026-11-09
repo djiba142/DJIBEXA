@@ -116,7 +116,7 @@ export function PublicStorefrontPage({ slug, fallback }: { slug: string; fallbac
             </span>
           </Link>
           <Button asChild size="sm">
-            <Link to="/auth">Espace de gestion</Link>
+            <Link to="/auth">Connexion</Link>
           </Button>
         </div>
       </header>

@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BarChart3,
+  Building2,
   Bell,
   ChevronDown,
   LayoutDashboard,
@@ -19,6 +20,7 @@ import {
   UserCircle,
   Warehouse,
   FileBarChart,
+  Globe2,
   Settings,
   LifeBuoy,
   ShieldCheck,
@@ -237,20 +239,95 @@ const REPORT_ADMIN_ITEMS = [
 ];
 const ACCOUNT_ITEMS = ["profile", "help"];
 
-const PLATFORM_SECTIONS = [
-  { section: "services", key: "platform.services", icon: Database },
-  { section: "incidents", key: "platform.incidents", icon: BellRing },
-  { section: "security", key: "platform.security", icon: ShieldCheck },
-  { section: "backups", key: "platform.backups", icon: HardDrive },
-  { section: "maintenance", key: "platform.maintenance", icon: Wrench },
-  { section: "plans", key: "platform.plans", icon: PackageCheck },
-  { section: "support", key: "platform.support", icon: LifeBuoy },
-  { section: "resources", key: "platform.resources", icon: CircleDollarSign },
-  { section: "audit", key: "platform.audit", icon: ClipboardClock },
-] as const;
+const PLATFORM_MENU_GROUPS: {
+  key: string;
+  icon: typeof LayoutDashboard;
+  items: { key: string; section: string | null; hash?: string; profile?: boolean }[];
+}[] = [
+  {
+    key: "platform.menu.dashboard",
+    icon: LayoutDashboard,
+    items: [
+      { key: "platform.overview", section: null },
+      { key: "platform.menu.generalStats", section: "resources" },
+      { key: "platform.menu.recentActivity", section: "audit" },
+      { key: "platform.incidents", section: "incidents" },
+    ],
+  },
+  {
+    key: "platform.menu.companies",
+    icon: Building2,
+    items: [
+      { key: "platform.menu.allCompanies", section: null },
+      { key: "platform.menu.addCompany", section: null, hash: "tenant-create" },
+    ],
+  },
+  {
+    key: "platform.menu.subscriptions",
+    icon: PackageCheck,
+    items: [
+      { key: "platform.plans", section: "plans" },
+      { key: "platform.menu.companySubscriptions", section: "plans" },
+    ],
+  },
+  {
+    key: "platform.menu.payments",
+    icon: CircleDollarSign,
+    items: [{ key: "platform.menu.paymentTable", section: "payments" }],
+  },
+  {
+    key: "platform.menu.modules",
+    icon: Boxes,
+    items: [{ key: "platform.menu.moduleCatalog", section: "modules" }],
+  },
+  {
+    key: "platform.menu.users",
+    icon: UserCog,
+    items: [{ key: "platform.menu.companyAdmins", section: "users" }],
+  },
+  {
+    key: "platform.menu.domains",
+    icon: Globe2,
+    items: [{ key: "platform.menu.companyDomains", section: "domains" }],
+  },
+  {
+    key: "platform.menu.system",
+    icon: Activity,
+    items: [
+      { key: "platform.services", section: "services" },
+      { key: "platform.backups", section: "backups" },
+      { key: "platform.maintenance", section: "maintenance" },
+      { key: "platform.resources", section: "resources" },
+    ],
+  },
+  {
+    key: "platform.menu.security",
+    icon: ShieldCheck,
+    items: [
+      { key: "platform.security", section: "security" },
+      { key: "platform.audit", section: "audit" },
+    ],
+  },
+  {
+    key: "platform.menu.reports",
+    icon: FileBarChart,
+    items: [{ key: "platform.menu.platformReports", section: "reports" }],
+  },
+  {
+    key: "platform.menu.settings",
+    icon: Settings,
+    items: [{ key: "platform.menu.generalSettings", section: "settings" }],
+  },
+  {
+    key: "platform.menu.account",
+    icon: UserCircle,
+    items: [{ key: "nav.profile", section: null, profile: true }],
+  },
+];
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const hash = useRouterState({ select: (r) => r.location.hash });
   const { roles, can, isPlatformAdmin } = useAuth();
   const { t } = useLocale();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -331,34 +408,71 @@ export function AppSidebar() {
       <SidebarContent>
         {isPlatformAdmin && (
           <SidebarGroup>
-            <SidebarGroupLabel>{t("platform.navigation")}</SidebarGroupLabel>
+            <SidebarGroupLabel>{t("platform.controlCenter")}</SidebarGroupLabel>
+            <p className="text-sidebar-foreground/60 px-2 pb-2 text-[10px] font-semibold tracking-widest">
+              {t("platform.superAdmin")}
+            </p>
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/platform"}>
-                    <Link to="/platform">
-                      <ShieldCheck />
-                      <span>{t("platform.overview")}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/platform/monitoring"}>
-                    <Link to="/platform/monitoring">
-                      <Activity />
-                      <span>{t("platform.monitoring")}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {PLATFORM_SECTIONS.map(({ section, key, icon: Icon }) => (
-                  <SidebarMenuItem key={section}>
-                    <SidebarMenuButton asChild isActive={pathname === `/platform/${section}`}>
-                      <Link to="/platform/$section" params={{ section }}>
-                        <Icon />
-                        <span>{t(key)}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                {PLATFORM_MENU_GROUPS.map(({ key, icon: Icon, items: groupItems }) => (
+                  <Collapsible
+                    key={key}
+                    defaultOpen={groupItems.some((item) =>
+                      item.profile
+                        ? pathname === "/profil"
+                        : item.section
+                          ? pathname === `/platform/${item.section}`
+                          : pathname === "/platform",
+                    )}
+                  >
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton>
+                          <Icon />
+                          <span>{t(key)}</span>
+                          <ChevronDown className="ml-auto transition-transform group-data-[state=open]:rotate-180" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                    </SidebarMenuItem>
+                    <CollapsibleContent>
+                      <SidebarMenu className="mt-1">
+                        {groupItems.map((item) => (
+                          <SidebarMenuItem
+                            key={`${item.key}-${item.section ?? item.hash ?? "overview"}`}
+                          >
+                            <SidebarMenuButton
+                              asChild
+                              isActive={
+                                item.profile
+                                  ? pathname === "/profil"
+                                  : item.section
+                                    ? pathname === `/platform/${item.section}`
+                                    : pathname === "/platform" && (!item.hash || hash === item.hash)
+                              }
+                              tooltip={t(item.key)}
+                              onClick={() => {
+                                if (isMobile) setOpenMobile(false);
+                              }}
+                            >
+                              {item.profile ? (
+                                <Link to="/profil">
+                                  <span>{t(item.key)}</span>
+                                </Link>
+                              ) : item.section ? (
+                                <Link to="/platform/$section" params={{ section: item.section }}>
+                                  <span>{t(item.key)}</span>
+                                </Link>
+                              ) : (
+                                <Link to="/platform" hash={item.hash}>
+                                  <span>{t(item.key)}</span>
+                                </Link>
+                              )}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))}
+                      </SidebarMenu>
+                    </CollapsibleContent>
+                  </Collapsible>
                 ))}
               </SidebarMenu>
             </SidebarGroupContent>

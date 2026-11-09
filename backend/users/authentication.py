@@ -1,6 +1,7 @@
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.exceptions import PermissionDenied
 
+from core.platform_entitlements import module_for_request_path, user_has_required_module
 from core.tenancy import tenant_for_user
 
 
@@ -36,6 +37,11 @@ def _check_platform_admin_access(user, request):
         if tenant is None or tenant.status_at() != 'active':
             raise PermissionDenied(
                 'L’accès à cet espace est indisponible. Vérifiez son activation ou sa licence.',
+            )
+        if not user_has_required_module(user, request.path):
+            module_code = module_for_request_path(request.path)
+            raise PermissionDenied(
+                f'Le module « {module_code} » n’est pas activé pour votre espace.',
             )
 
 

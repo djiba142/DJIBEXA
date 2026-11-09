@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "DJIBEXA",
+  "short_name": "DJIBEXA",
+  "description": "Gestion commerciale, ventes et stocks de DJIBEXA.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F5F7FA",
+  "theme_color": "#10243A",
+  "icons": [
+    {
+      "src": "/brand/djibexa-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/djibexa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/djibexa-icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
