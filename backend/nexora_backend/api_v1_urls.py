@@ -1,6 +1,7 @@
 from django.urls import include, path
 
 from core.sync import SyncView
+from core.platform_views import PublicDemoRequestCreateView
 from core.views import (
     AdvancedReportingView,
     AppSettingDetailView,
@@ -63,6 +64,7 @@ from suppliers.views import SupplierImportConfirmView, SupplierImportView
 
 urlpatterns = [
     path('platform/', include('core.platform_urls')),
+    path('public/demo-requests/', PublicDemoRequestCreateView.as_view(), name='public-demo-request'),
     path('company/', CompanyView.as_view(), name='company'),
     path('dashboard/', DashboardSummaryView.as_view(), name='dashboard-summary'),
     path('dashboard/overview/', DashboardOverviewView.as_view(), name='dashboard-overview'),

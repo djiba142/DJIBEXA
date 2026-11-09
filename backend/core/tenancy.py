@@ -16,10 +16,25 @@ def tenant_for_user(user):
     ):
         return None
     if user.tenant_id is not None:
-        return Tenant.objects.filter(pk=user.tenant_id).first()
+        tenant = Tenant.objects.filter(pk=user.tenant_id).first()
+        if tenant is None:
+            return None
+        if user.tenant_memberships.exists() and not user.tenant_memberships.filter(
+            tenant_id=tenant.pk,
+            is_active=True,
+        ).exists():
+            return None
+        return tenant
 
     tenants = list(Tenant.objects.order_by('pk')[:2])
-    return tenants[0] if len(tenants) == 1 else None
+    if len(tenants) != 1:
+        return None
+    if user.tenant_memberships.exists() and not user.tenant_memberships.filter(
+        tenant_id=tenants[0].pk,
+        is_active=True,
+    ).exists():
+        return None
+    return tenants[0]
 
 
 def tenant_scoped_queryset(

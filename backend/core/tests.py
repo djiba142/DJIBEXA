@@ -7,10 +7,12 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from django.apps import apps
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.management import call_command, CommandError
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, connection
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -38,12 +40,29 @@ from .mailer import create_branded_email
 from .models import (
     AppSetting,
     AuditLog,
+    BillingInvoice,
     Company,
+    EmailOutbox,
     PlatformAuditLog,
+    PlatformDemoRequest,
+    PlatformModule,
+    PlatformPayment,
+    PlatformPlan,
     PlatformSettings,
     PlatformTaskRun,
+    PaymentRecord,
     Tenant,
+    TenantDomain,
+    TenantMembership,
+    TenantModuleOverride,
+    TenantSubscription,
 )
+from .platform_entitlements import (
+    module_for_request_path,
+    tenant_module_is_enabled,
+    user_has_required_module,
+)
+from .tenancy import tenant_for_user
 
 
 class ProductionSettingsTests(SimpleTestCase):
@@ -224,6 +243,129 @@ class CoreApiTests(TestCase):
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+
+    def test_inactive_tenant_membership_blocks_legacy_tenant_assignment(self):
+        tenant = Tenant.objects.create(
+            slug='membership-authorization',
+            name='Membership authorization',
+        )
+        member = User.objects.create_user(
+            username='membership_authorization_user',
+            password='secret123',
+            tenant=tenant,
+            role='sales',
+        )
+        membership = TenantMembership.objects.create(
+            tenant=tenant,
+            user=member,
+            role='sales',
+            is_active=False,
+        )
+
+        self.assertIsNone(tenant_for_user(member))
+
+        membership.is_active = True
+        membership.save(update_fields=['is_active', 'updated_at'])
+        self.assertEqual(tenant_for_user(member), tenant)
+
+    def test_platform_admin_can_verify_dns_domain_and_choose_primary(self):
+        platform_admin = User.objects.create_user(
+            username='platform_domain_admin',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        tenant = Tenant.objects.create(
+            slug='domain-verification',
+            name='Domain verification',
+        )
+        self.client.force_authenticate(user=platform_admin)
+
+        created = self.client.post(
+            f'/api/v1/platform/tenants/{tenant.pk}/domains/',
+            {
+                'hostname': 'ERP.Example.Test',
+                'domain_type': 'application',
+                'reason': 'Domaine autorisé pour le tenant.',
+            },
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        domain = TenantDomain.objects.get(pk=created.data['domain']['id'])
+        challenge_value = created.data['challenge']['recordValue']
+        self.assertEqual(domain.hostname, 'erp.example.test')
+        self.assertNotIn(challenge_value, domain.verification_token_hash)
+
+        answer = SimpleNamespace(strings=[challenge_value.encode('utf-8')])
+        with patch(
+            'core.platform_views.dns.resolver.Resolver.resolve',
+            return_value=[answer],
+        ):
+            verified = self.client.post(
+                f'/api/v1/platform/domains/{domain.pk}/verify/',
+                {'reason': 'TXT DNS contrôlé.'},
+                format='json',
+            )
+        self.assertEqual(verified.status_code, 200, verified.data)
+        domain.refresh_from_db()
+        self.assertEqual(domain.verification_status, 'verified')
+        self.assertIsNotNone(domain.verified_at)
+        self.assertEqual(domain.verification_token_hash, '')
+
+        primary = self.client.post(
+            f'/api/v1/platform/domains/{domain.pk}/set-primary/',
+            {'reason': 'Domaine confirmé pour l’application.'},
+            format='json',
+        )
+        self.assertEqual(primary.status_code, 200, primary.data)
+        domain.refresh_from_db()
+        self.assertTrue(domain.is_primary)
+        audit = PlatformAuditLog.objects.filter(
+            tenant=tenant,
+            entity_type='tenant_domain',
+        ).latest('created_at')
+        self.assertEqual(audit.entity_id, str(domain.pk))
+        self.assertEqual(audit.reason, 'Domaine confirmé pour l’application.')
+
+    def test_platform_tenant_archive_restore_and_deletion_request_preserve_data(self):
+        platform_admin = User.objects.create_user(
+            username='platform_tenant_lifecycle',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        tenant = Tenant.objects.create(
+            slug='tenant-lifecycle',
+            name='Tenant lifecycle',
+            status='active',
+        )
+        self.client.force_authenticate(user=platform_admin)
+
+        archived = self.client.post(
+            f'/api/v1/platform/tenants/{tenant.pk}/archive/',
+            {'reason': 'Archivage demandé.'},
+            format='json',
+        )
+        self.assertEqual(archived.status_code, 200, archived.data)
+        self.assertEqual(archived.data['status'], 'archived')
+        tenant.refresh_from_db()
+        self.assertIsNotNone(tenant.archived_at)
+
+        restored = self.client.post(
+            f'/api/v1/platform/tenants/{tenant.pk}/restore/',
+            {'reason': 'Réactivation administrative demandée.'},
+            format='json',
+        )
+        self.assertEqual(restored.status_code, 200, restored.data)
+        self.assertEqual(restored.data['status'], 'suspended')
+        self.assertTrue(Tenant.objects.filter(pk=tenant.pk).exists())
+
+        requested = self.client.post(
+            f'/api/v1/platform/tenants/{tenant.pk}/request-deletion/',
+            {'reason': 'Demande de suppression reçue.'},
+            format='json',
+        )
+        self.assertEqual(requested.status_code, 200, requested.data)
+        self.assertEqual(requested.data['status'], 'deletion_pending')
+        self.assertTrue(Tenant.objects.filter(pk=tenant.pk).exists())
 
     @override_settings(FRONTEND_BASE_URL='https://app.example.test')
     def test_root_redirects_to_configured_frontend(self):
@@ -490,6 +632,7 @@ class CoreApiTests(TestCase):
         )
         self.assertEqual(activated.status_code, 200, activated.data)
         self.assertEqual(activated.data['status'], 'active')
+        self.assertNotIn('invitationEmailQueued', activated.data)
         initial_expiration = activated.data['trialEndsAt']
 
         suspended = self.client.post(
@@ -535,7 +678,7 @@ class CoreApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data, {'invited': True, 'emailSent': False})
+        self.assertEqual(response.data, {'invited': True, 'emailQueued': False})
         invited_user = User.objects.get(username='initial_admin')
         self.assertEqual(invited_user.tenant, tenant)
         self.assertEqual(invited_user.role, 'admin')
@@ -579,6 +722,8 @@ class CoreApiTests(TestCase):
             format='json',
         )
         self.assertEqual(activated.status_code, 200, activated.data)
+        self.assertTrue(activated.data['invitationEmailQueued'])
+        call_command('process_email_outbox')
         self.assertEqual(len(mail.outbox), 1)
         invitation_email = mail.outbox[0]
         self.assertIn(tenant.name, invitation_email.body)
@@ -591,10 +736,10 @@ class CoreApiTests(TestCase):
             line for line in invitation_email.body.splitlines()
             if '/reset-password?uid=' in line
         )
-        token = setup_url.split('&token=', 1)[1].split('&', 1)[0]
+        token = parse_qs(urlsplit(setup_url).query)['token'][0]
         invited_user.refresh_from_db()
         self.assertTrue(invited_user.is_active)
-        self.assertFalse(invited_user.invitation_pending)
+        self.assertTrue(invited_user.invitation_pending)
         self.client.force_authenticate(user=None)
         password_setup = self.client.post(
             '/api/v1/users/pin-reset/confirm/',
@@ -657,7 +802,7 @@ class CoreApiTests(TestCase):
         )
 
         self.assertEqual(first.status_code, 201, first.data)
-        self.assertFalse(first.data['emailSent'])
+        self.assertFalse(first.data['emailQueued'])
         self.assertEqual(duplicate.status_code, 400)
         self.assertEqual(duplicate_identity.status_code, 400)
         self.assertEqual(User.objects.filter(tenant=tenant).count(), 1)
@@ -690,10 +835,11 @@ class CoreApiTests(TestCase):
         )
 
         self.assertEqual(invited.status_code, 201, invited.data)
-        self.assertTrue(invited.data['emailSent'])
+        self.assertTrue(invited.data['emailQueued'])
+        call_command('process_email_outbox')
         invited_user = User.objects.get(username='active_tenant_admin')
         self.assertTrue(invited_user.is_active)
-        self.assertFalse(invited_user.invitation_pending)
+        self.assertTrue(invited_user.invitation_pending)
         self.assertTrue(invited_user.must_change_password)
         self.assertFalse(invited_user.has_usable_password())
         self.assertIn('purpose=invitation', mail.outbox[0].body)
@@ -703,7 +849,7 @@ class CoreApiTests(TestCase):
             line for line in mail.outbox[0].body.splitlines()
             if '/reset-password?uid=' in line
         )
-        token = setup_url.split('&token=', 1)[1].split('&', 1)[0]
+        token = parse_qs(urlsplit(setup_url).query)['token'][0]
         self.client.force_authenticate(user=None)
         login_response = self.client.post(
             '/api/v1/users/login/',
@@ -713,7 +859,7 @@ class CoreApiTests(TestCase):
             },
             format='json',
         )
-        self.assertEqual(login_response.status_code, 401, login_response.data)
+        self.assertEqual(login_response.status_code, 403, login_response.data)
         password_setup = self.client.post(
             '/api/v1/users/pin-reset/confirm/',
             {
@@ -728,7 +874,7 @@ class CoreApiTests(TestCase):
         self.assertTrue(invited_user.check_password('ChosenPassword!2026'))
         self.assertFalse(invited_user.must_change_password)
 
-    def test_platform_admin_invitation_rolls_back_when_email_cannot_be_sent(self):
+    def test_platform_admin_invitation_rolls_back_when_outbox_cannot_be_queued(self):
         platform_admin = User.objects.create_user(
             username='platform_invitation_mail_failure',
             password='secret123',
@@ -760,6 +906,48 @@ class CoreApiTests(TestCase):
             PlatformAuditLog.objects.filter(
                 tenant=tenant,
                 action='invite_admin',
+            ).exists(),
+        )
+
+    def test_tenant_activation_queues_invitation_for_reliable_delivery(self):
+        platform_admin = User.objects.create_user(
+            username='platform_activation_mail_failure',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        tenant = Tenant.objects.create(
+            slug='activation-mail-failure',
+            name='Entreprise e-mail indisponible',
+        )
+        invited_admin = User.objects.create_user(
+            username='activation_mail_failure_admin',
+            email='activation.mail.failure@example.com',
+            password=None,
+            tenant=tenant,
+            is_active=False,
+            invitation_pending=True,
+            must_change_password=True,
+        )
+        self.client.force_authenticate(user=platform_admin)
+
+        response = self.client.post(
+            f'/api/v1/platform/tenants/{tenant.pk}/activate/',
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['status'], 'active')
+        self.assertTrue(response.data['invitationEmailQueued'])
+        self.assertEqual(EmailOutbox.objects.filter(status='queued').count(), 1)
+        tenant.refresh_from_db()
+        invited_admin.refresh_from_db()
+        self.assertEqual(tenant.status, 'active')
+        self.assertTrue(invited_admin.is_active)
+        self.assertTrue(invited_admin.invitation_pending)
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(
+                tenant=tenant,
+                action='activate',
             ).exists(),
         )
 
@@ -860,6 +1048,7 @@ class CoreApiTests(TestCase):
         self.client.force_authenticate(user=platform_admin)
         Tenant.objects.bulk_create([
             Tenant(
+                code=f'company-{index}',
                 slug=f'company-{index}',
                 name=f'Entreprise {index}',
             )
@@ -1113,6 +1302,21 @@ class CoreApiTests(TestCase):
         with self.assertRaises(ValidationError):
             tenant.activate_trial(activated_at=activated_at)
 
+    def test_tenant_trial_uses_configured_calendar_month_duration(self):
+        tenant = Tenant.objects.create(
+            slug='trial-duration-test',
+            name='Entreprise de test',
+            trial_duration_months=1,
+        )
+        activated_at = timezone.make_aware(datetime(2026, 1, 31, 10, 30))
+
+        tenant.activate_trial(activated_at=activated_at)
+
+        self.assertEqual(
+            tenant.trial_ends_at,
+            timezone.make_aware(datetime(2026, 2, 28, 10, 30)),
+        )
+
     def test_list_and_create_app_settings(self):
         response = self.client.post(
             '/api/core/settings/',
@@ -1203,6 +1407,46 @@ class CoreApiTests(TestCase):
         response = self.client.get('/api/core/audit/')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(any(item['action'] == 'login' for item in response.data['results']))
+
+    def test_audit_logs_are_scoped_to_the_requesting_users_tenant(self):
+        tenant_a = Tenant.objects.create(
+            slug='audit-isolation-tenant-a',
+            name='Entreprise journal A',
+        )
+        tenant_b = Tenant.objects.create(
+            slug='audit-isolation-tenant-b',
+            name='Entreprise journal B',
+        )
+        self.user.tenant = tenant_a
+        self.user.save(update_fields=['tenant'])
+        user_b = User.objects.create_user(
+            username='audit_isolation_user_b',
+            password='secret123',
+            role='admin',
+            tenant=tenant_b,
+        )
+        own_entry = AuditLog.objects.create(
+            user=self.user,
+            action='login',
+            model_name='User',
+            record_id=self.user.id,
+            details='Action propre à l’entreprise A',
+        )
+        foreign_entry = AuditLog.objects.create(
+            user=user_b,
+            action='login',
+            model_name='User',
+            record_id=user_b.id,
+            details='Action privée de l’entreprise B',
+        )
+
+        response = self.client.get('/api/core/audit/')
+
+        self.assertEqual(response.status_code, 200)
+        returned_ids = {entry['id'] for entry in response.data['results']}
+        self.assertIn(own_entry.id, returned_ids)
+        self.assertNotIn(foreign_entry.id, returned_ids)
+        self.assertNotIn('Action privée de l’entreprise B', str(response.data))
 
     def test_dashboard_summary_exposes_business_kpis(self):
         customer = Customer.objects.create(full_name='Aminata Diallo', phone='+224600000001')
@@ -2388,3 +2632,656 @@ class CoreApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+
+class PlatformBillingTests(TestCase):
+    def setUp(self):
+        self.platform_admin = User.objects.create_user(
+            username='billing_platform_admin',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        self.tenant = Tenant.objects.create(
+            slug='billing-tenant',
+            name='Entreprise facturation',
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.platform_admin)
+
+    def test_only_platform_admin_can_manage_platform_plans(self):
+        tenant_admin = User.objects.create_user(
+            username='billing_tenant_admin',
+            password='secret123',
+            role='admin',
+            tenant=self.tenant,
+        )
+        self.client.force_authenticate(user=tenant_admin)
+
+        response = self.client.get('/api/v1/platform/plans/')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_paid_subscription_payment_confirmation_activates_tenant_and_audits(self):
+        module = PlatformModule.objects.create(
+            code='billing-dashboard',
+            name='Tableau de bord',
+        )
+        plan = PlatformPlan.objects.create(
+            code='billing-standard',
+            name='Standard',
+            price=Decimal('50000.00'),
+            currency='GNF',
+            duration_months=3,
+            max_users=10,
+        )
+        plan.modules.add(module)
+
+        assigned = self.client.post(
+            '/api/v1/platform/subscriptions/',
+            {'tenant_id': self.tenant.pk, 'plan_id': plan.pk},
+            format='json',
+        )
+
+        self.assertEqual(assigned.status_code, 201, assigned.data)
+        subscription_id = assigned.data['id']
+        self.assertEqual(assigned.data['status'], 'pending')
+        invoice = BillingInvoice.objects.get(subscription_id=subscription_id)
+        self.assertEqual(invoice.status, 'open')
+        self.assertEqual(invoice.amount, Decimal('50000.00'))
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.status, 'pending')
+
+        invalid_payment = self.client.post(
+            '/api/v1/platform/payments/',
+            {
+                'subscription_id': subscription_id,
+                'amount': '49999.00',
+                'method': 'bank_transfer',
+                'paid_at': timezone.localdate().isoformat(),
+            },
+            format='json',
+        )
+        self.assertEqual(invalid_payment.status_code, 400)
+
+        payment = self.client.post(
+            '/api/v1/platform/payments/',
+            {
+                'subscription_id': subscription_id,
+                'amount': '50000.00',
+                'method': 'bank_transfer',
+                'reference': 'BANK-2026-001',
+                'paid_at': timezone.localdate().isoformat(),
+            },
+            format='json',
+        )
+        self.assertEqual(payment.status_code, 201, payment.data)
+        self.assertEqual(payment.data['status'], 'pending')
+        payment_record = PaymentRecord.objects.get(
+            platform_payment__subscription_id=subscription_id
+        )
+        self.assertEqual(payment_record.status, 'pending')
+        self.assertEqual(payment_record.invoice_id, invoice.pk)
+        self.assertEqual(payment.data['invoiceNumber'], invoice.invoice_number)
+
+        confirmed = self.client.post(
+            f"/api/v1/platform/payments/{payment.data['id']}/confirm/",
+            {},
+            format='json',
+        )
+
+        self.assertEqual(confirmed.status_code, 200, confirmed.data)
+        self.assertEqual(confirmed.data['status'], 'confirmed')
+        payment_record.refresh_from_db()
+        invoice.refresh_from_db()
+        self.assertEqual(payment_record.status, 'confirmed')
+        self.assertEqual(payment_record.verified_by, self.platform_admin)
+        self.assertEqual(invoice.status, 'paid')
+        subscription = TenantSubscription.objects.get(pk=subscription_id)
+        self.assertEqual(subscription.status, 'active')
+        self.assertIsNotNone(subscription.ends_at)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.status, 'active')
+        self.assertTrue(tenant_module_is_enabled(self.tenant, module.code))
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(action='subscription_assign').exists()
+        )
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(action='payment_record').exists()
+        )
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(action='payment_confirm').exists()
+        )
+
+    def test_paid_plan_change_suspends_active_tenant_until_payment(self):
+        module = PlatformModule.objects.create(
+            code='billing-reports',
+            name='Rapports',
+        )
+        plan = PlatformPlan.objects.create(
+            code='billing-paid',
+            name='Payant',
+            price=Decimal('100.00'),
+            currency='GNF',
+            duration_months=1,
+            max_users=10,
+        )
+        plan.modules.add(module)
+        self.tenant.status = 'active'
+        self.tenant.trial_activated_at = timezone.now()
+        self.tenant.trial_ends_at = timezone.now() + timedelta(days=30)
+        self.tenant.save()
+
+        response = self.client.post(
+            '/api/v1/platform/subscriptions/',
+            {'tenant_id': self.tenant.pk, 'plan_id': plan.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.status, 'suspended')
+
+    def test_rejected_payment_does_not_activate_a_pending_subscription(self):
+        plan = PlatformPlan.objects.create(
+            code='billing-rejected',
+            name='À rejeter',
+            price=Decimal('250.00'),
+            currency='GNF',
+            duration_months=1,
+            max_users=10,
+        )
+        assigned = self.client.post(
+            '/api/v1/platform/subscriptions/',
+            {'tenant_id': self.tenant.pk, 'plan_id': plan.pk},
+            format='json',
+        )
+        payment = self.client.post(
+            '/api/v1/platform/payments/',
+            {
+                'subscription_id': assigned.data['id'],
+                'amount': '250.00',
+                'method': 'cash',
+                'paid_at': timezone.localdate().isoformat(),
+            },
+            format='json',
+        )
+
+        rejected = self.client.post(
+            f"/api/v1/platform/payments/{payment.data['id']}/reject/",
+            {},
+            format='json',
+        )
+
+        self.assertEqual(rejected.status_code, 200, rejected.data)
+        self.assertEqual(rejected.data['status'], 'rejected')
+        self.assertEqual(
+            TenantSubscription.objects.get(pk=assigned.data['id']).status,
+            'pending',
+        )
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.status, 'pending')
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(action='payment_reject').exists()
+        )
+
+    def test_module_override_requires_dependencies_from_active_entitlement(self):
+        base = PlatformModule.objects.create(
+            code='billing-base',
+            name='Base',
+        )
+        dependent = PlatformModule.objects.create(
+            code='billing-advanced',
+            name='Avancé',
+            dependencies=[base.code],
+        )
+        plan = PlatformPlan.objects.create(
+            code='billing-empty',
+            name='Sans modules',
+            price=Decimal('10.00'),
+            currency='GNF',
+            duration_months=1,
+            max_users=10,
+        )
+        subscription = TenantSubscription.objects.create(
+            tenant=self.tenant,
+            plan=plan,
+            status='active',
+            amount=plan.price,
+            currency=plan.currency,
+            duration_months=1,
+            max_users=10,
+            included_modules=[],
+            starts_at=timezone.now(),
+            ends_at=timezone.now() + timedelta(days=30),
+            created_by=self.platform_admin,
+        )
+        self.tenant.status = 'active'
+        self.tenant.trial_activated_at = timezone.now()
+        self.tenant.trial_ends_at = subscription.ends_at
+        self.tenant.save()
+
+        denied = self.client.patch(
+            f'/api/v1/platform/tenants/{self.tenant.pk}/modules/',
+            {'module_code': dependent.code, 'status': 'enabled'},
+            format='json',
+        )
+
+        self.assertEqual(denied.status_code, 400)
+        subscription.included_modules = [base.code]
+        subscription.save(update_fields=['included_modules', 'updated_at'])
+
+        enabled = self.client.patch(
+            f'/api/v1/platform/tenants/{self.tenant.pk}/modules/',
+            {'module_code': dependent.code, 'status': 'enabled'},
+            format='json',
+        )
+
+        self.assertEqual(enabled.status_code, 200, enabled.data)
+        self.assertTrue(
+            TenantModuleOverride.objects.filter(
+                tenant=self.tenant,
+                module=dependent,
+                status='enabled',
+            ).exists()
+        )
+
+    def test_active_subscription_restricts_unincluded_business_modules(self):
+        tenant_user = User.objects.create_user(
+            username='billing_module_user',
+            password='secret123',
+            role='admin',
+            tenant=self.tenant,
+        )
+        plan = PlatformPlan.objects.create(
+            code='billing-dashboard-only',
+            name='Tableau de bord uniquement',
+            price=Decimal('100.00'),
+            currency='GNF',
+            duration_months=1,
+            max_users=10,
+        )
+        subscription = TenantSubscription.objects.create(
+            tenant=self.tenant,
+            plan=plan,
+            status='active',
+            amount=plan.price,
+            currency=plan.currency,
+            duration_months=1,
+            max_users=10,
+            included_modules=['dashboard'],
+            starts_at=timezone.now(),
+            ends_at=timezone.now() + timedelta(days=30),
+            created_by=self.platform_admin,
+        )
+        self.tenant.status = 'active'
+        self.tenant.trial_activated_at = timezone.now()
+        self.tenant.trial_ends_at = subscription.ends_at
+        self.tenant.save()
+
+        self.assertEqual(module_for_request_path('/api/v1/products/'), 'products')
+        self.assertTrue(tenant_module_is_enabled(self.tenant, 'dashboard'))
+        self.assertFalse(tenant_module_is_enabled(self.tenant, 'products'))
+        self.assertFalse(
+            user_has_required_module(tenant_user, '/api/v1/products/')
+        )
+
+        session_client = APIClient()
+        self.assertTrue(
+            session_client.login(
+                username=tenant_user.username,
+                password='secret123',
+            )
+        )
+        denied = session_client.get('/api/v1/products/')
+        self.assertEqual(denied.status_code, 403)
+
+        platform_client = APIClient()
+        self.assertTrue(
+            platform_client.login(
+                username=self.platform_admin.username,
+                password='secret123',
+            )
+        )
+        isolated = platform_client.get('/api/v1/products/')
+        self.assertEqual(isolated.status_code, 403)
+
+
+class PlatformOperationsTests(TestCase):
+    def setUp(self):
+        self.platform_admin = User.objects.create_user(
+            username='operations_platform_admin',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        self.tenant = Tenant.objects.create(
+            slug='operations-tenant',
+            name='Entreprise opérations',
+            status='active',
+            trial_activated_at=timezone.now(),
+            trial_ends_at=timezone.now() + timedelta(days=30),
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.platform_admin)
+
+    def test_platform_user_access_is_filtered_and_audited(self):
+        first_admin = User.objects.create_user(
+            username='operations_admin_one',
+            password='secret123',
+            email='admin-one@example.test',
+            role='admin',
+            tenant=self.tenant,
+        )
+        User.objects.create_user(
+            username='operations_admin_two',
+            password='secret123',
+            email='admin-two@example.test',
+            role='admin',
+            tenant=self.tenant,
+        )
+
+        listing = self.client.get(
+            '/api/v1/platform/users/',
+            {'search': 'Entreprise opérations', 'status': 'active'},
+        )
+
+        self.assertEqual(listing.status_code, 200, listing.data)
+        self.assertEqual(listing.data['count'], 2)
+        user_data = next(
+            item for item in listing.data['results']
+            if item['id'] == first_admin.pk
+        )
+        self.assertEqual(user_data['tenantName'], self.tenant.name)
+        self.assertEqual(user_data['email'], 'admin-one@example.test')
+
+        deactivated = self.client.post(
+            f'/api/v1/platform/users/{first_admin.pk}/deactivate/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(deactivated.status_code, 200, deactivated.data)
+        self.assertFalse(deactivated.data['isActive'])
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(
+                action='user_access',
+                tenant=self.tenant,
+                details__action='deactivate',
+            ).exists()
+        )
+
+    def test_last_company_admin_cannot_be_deactivated(self):
+        admin = User.objects.create_user(
+            username='operations_last_admin',
+            password='secret123',
+            role='admin',
+            tenant=self.tenant,
+        )
+
+        response = self.client.post(
+            f'/api/v1/platform/users/{admin.pk}/deactivate/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        admin.refresh_from_db()
+        self.assertTrue(admin.is_active)
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        FRONTEND_BASE_URL='https://app.example.test',
+    )
+    def test_password_setup_link_is_sent_and_password_is_invalidated(self):
+        admin = User.objects.create_user(
+            username='operations_reset_admin',
+            password='old-secret123',
+            email='reset-admin@example.test',
+            role='admin',
+            tenant=self.tenant,
+        )
+
+        response = self.client.post(
+            f'/api/v1/platform/users/{admin.pk}/send-setup-link/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        call_command('process_email_outbox')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('purpose=invitation', mail.outbox[0].body)
+        admin.refresh_from_db()
+        self.assertFalse(admin.has_usable_password())
+        self.assertTrue(admin.must_change_password)
+
+    @override_settings(FRONTEND_BASE_URL='https://app.example.test')
+    @patch(
+        'core.management.commands.process_email_outbox.create_branded_email',
+        side_effect=OSError('SMTP unavailable'),
+    )
+    def test_failed_password_setup_email_is_retained_for_retry(self, _create_email):
+        admin = User.objects.create_user(
+            username='operations_failed_reset_admin',
+            password='old-secret123',
+            email='failed-reset@example.test',
+            role='admin',
+            tenant=self.tenant,
+        )
+
+        response = self.client.post(
+            f'/api/v1/platform/users/{admin.pk}/send-setup-link/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        admin.refresh_from_db()
+        self.assertFalse(admin.has_usable_password())
+        self.assertTrue(admin.invitation_pending)
+        with self.assertRaises(CommandError):
+            call_command('process_email_outbox')
+        outbox_entry = EmailOutbox.objects.get(
+            idempotency_key__startswith='invitation:',
+        )
+        self.assertEqual(outbox_entry.status, 'failed')
+        self.assertEqual(outbox_entry.attempts, 1)
+        self.assertTrue(outbox_entry.next_attempt_at > timezone.now())
+
+    def test_platform_settings_reject_limits_below_current_usage_and_log_changes(self):
+        PlatformSettings.objects.filter(pk=1).update(
+            max_tenants=None,
+            max_active_users=None,
+        )
+        User.objects.create_user(
+            username='operations_active_user',
+            password='secret123',
+            role='admin',
+            tenant=self.tenant,
+        )
+
+        rejected = self.client.patch(
+            '/api/v1/platform/settings/',
+            {'max_tenants': 0, 'max_active_users': 0},
+            format='json',
+        )
+        self.assertEqual(rejected.status_code, 400)
+
+        updated = self.client.patch(
+            '/api/v1/platform/settings/',
+            {'max_tenants': 5, 'max_active_users': 8},
+            format='json',
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.data)
+        self.assertEqual(updated.data['maxTenants'], 5)
+        self.assertEqual(updated.data['maxActiveUsers'], 8)
+        self.assertTrue(
+            PlatformAuditLog.objects.filter(action='settings_update').exists()
+        )
+
+    def test_platform_reports_aggregate_live_licence_and_module_usage(self):
+        Tenant.objects.exclude(pk=self.tenant.pk).update(status='suspended')
+        dashboard = PlatformModule.objects.create(
+            code='operations-dashboard',
+            name='Operations dashboard',
+        )
+        sales = PlatformModule.objects.create(
+            code='operations-sales',
+            name='Operations sales',
+            dependencies=[dashboard.code],
+        )
+        plan = PlatformPlan.objects.create(
+            code='operations-plan',
+            name='Operations plan',
+            price=Decimal('500.00'),
+            currency='GNF',
+            duration_months=1,
+            max_users=10,
+        )
+        subscription = TenantSubscription.objects.create(
+            tenant=self.tenant,
+            plan=plan,
+            status='active',
+            amount=plan.price,
+            currency=plan.currency,
+            duration_months=1,
+            max_users=10,
+            included_modules=[dashboard.code, sales.code],
+            starts_at=timezone.now(),
+            ends_at=timezone.now() + timedelta(days=30),
+            created_by=self.platform_admin,
+        )
+        PlatformPayment.objects.create(
+            tenant=self.tenant,
+            subscription=subscription,
+            amount=plan.price,
+            currency='GNF',
+            method='cash',
+            status='confirmed',
+            recorded_by=self.platform_admin,
+        )
+
+        response = self.client.get('/api/v1/platform/reports/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['tenants']['active'], 1)
+        self.assertEqual(response.data['subscriptions']['byStatus']['active'], 1)
+        self.assertEqual(
+            response.data['confirmedPayments'][0],
+            {'currency': 'GNF', 'total': '500.00', 'count': 1},
+        )
+        adoption = {
+            module['code']: module['tenantCount']
+            for module in response.data['moduleAdoption']
+        }
+        self.assertEqual(adoption[dashboard.code], 1)
+        self.assertEqual(adoption[sales.code], 1)
+
+
+class PlatformDemoRequestTests(TestCase):
+    def setUp(self):
+        self.platform_admin = User.objects.create_user(
+            username='demo_platform_admin',
+            password='secret123',
+            is_platform_admin=True,
+        )
+        self.tenant = Tenant.objects.create(
+            slug='demo-request-tenant',
+            name='Entreprise cliente',
+            status='active',
+        )
+        self.tenant_admin = User.objects.create_user(
+            username='demo_tenant_admin',
+            password='secret123',
+            role='admin',
+            tenant=self.tenant,
+        )
+        self.client = APIClient()
+
+    def demo_payload(self, **overrides):
+        return {
+            'company_name': '  Société Exemple  ',
+            'contact_name': '  Aïssatou Diallo  ',
+            'email': '  DEMO@EXAMPLE.TEST ',
+            'phone': ' +224 600 00 00 00 ',
+            'message': ' Nous souhaitons découvrir les fonctions de gestion. ',
+            'consent': True,
+            **overrides,
+        }
+
+    def test_public_demo_request_is_validated_and_saved_for_central_review(self):
+        response = self.client.post(
+            '/api/v1/public/demo-requests/',
+            self.demo_payload(),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(PlatformDemoRequest.objects.count(), 1)
+        saved = PlatformDemoRequest.objects.get()
+        self.assertEqual(saved.company_name, 'Société Exemple')
+        self.assertEqual(saved.contact_name, 'Aïssatou Diallo')
+        self.assertEqual(saved.email, 'demo@example.test')
+        self.assertEqual(saved.phone, '+224 600 00 00 00')
+        self.assertEqual(saved.status, 'new')
+        self.assertIsNotNone(saved.consent_at)
+        self.assertNotIn('email', response.data)
+
+    def test_public_demo_request_requires_consent_and_valid_contact_data(self):
+        response = self.client.post(
+            '/api/v1/public/demo-requests/',
+            self.demo_payload(consent=False, email='invalid-email'),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(PlatformDemoRequest.objects.count(), 0)
+
+    def test_only_platform_admin_can_review_and_update_demo_requests(self):
+        demo_request = PlatformDemoRequest.objects.create(
+            company_name='Entreprise confidentielle',
+            contact_name='Contact privé',
+            email='private@example.test',
+            phone='+224600000001',
+            message='Demande de présentation.',
+            consent_at=timezone.now(),
+        )
+
+        anonymous_list = self.client.get('/api/v1/platform/demo-requests/')
+        anonymous_update = self.client.patch(
+            f'/api/v1/platform/demo-requests/{demo_request.id}/',
+            {'status': 'contacted'},
+            format='json',
+        )
+        self.assertEqual(anonymous_list.status_code, 403)
+        self.assertEqual(anonymous_update.status_code, 403)
+
+        self.client.force_authenticate(user=self.tenant_admin)
+        denied_list = self.client.get('/api/v1/platform/demo-requests/')
+        denied_update = self.client.patch(
+            f'/api/v1/platform/demo-requests/{demo_request.id}/',
+            {'status': 'contacted'},
+            format='json',
+        )
+        self.assertEqual(denied_list.status_code, 403)
+        self.assertEqual(denied_update.status_code, 403)
+
+        self.client.force_authenticate(user=self.platform_admin)
+        listed = self.client.get(
+            '/api/v1/platform/demo-requests/',
+            {'search': 'private@example.test', 'status': 'new'},
+        )
+        self.assertEqual(listed.status_code, 200, listed.data)
+        self.assertEqual(listed.data['count'], 1)
+        item = listed.data['results'][0]
+        self.assertEqual(item['email'], 'private@example.test')
+        self.assertEqual(item['companyName'], 'Entreprise confidentielle')
+
+        updated = self.client.patch(
+            f'/api/v1/platform/demo-requests/{demo_request.id}/',
+            {'status': 'contacted'},
+            format='json',
+        )
+        self.assertEqual(updated.status_code, 200, updated.data)
+        demo_request.refresh_from_db()
+        self.assertEqual(demo_request.status, 'contacted')

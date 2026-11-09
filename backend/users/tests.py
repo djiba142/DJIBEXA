@@ -3,11 +3,13 @@ from datetime import timedelta
 from io import BytesIO
 from importlib import import_module
 import tempfile
+from urllib.parse import parse_qs, urlsplit
 
 from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -15,7 +17,7 @@ from django.utils.http import urlsafe_base64_encode
 from PIL import Image
 from rest_framework.test import APIClient
 
-from core.models import AuditLog, Tenant
+from core.models import AuditLog, Invitation, Tenant, TenantMembership
 from customers.models import Customer
 from payments.models import Payment
 from sales.models import Sale
@@ -136,7 +138,7 @@ class AuthLoginTests(TestCase):
         response = self.client.get('/api/users/')
         self.assertEqual(response.status_code, 403)
 
-    def test_tenant_admin_creation_emails_and_enforces_temporary_password(self):
+    def test_tenant_admin_creation_sends_single_use_activation_invitation(self):
         admin = User.objects.create_user(
             username='temporary_password_admin',
             email='temporary.password.admin@example.com',
@@ -159,36 +161,57 @@ class AuthLoginTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         created_user = User.objects.get(username='new_employee')
         self.assertTrue(created_user.must_change_password)
-        self.assertEqual(len(mail.outbox), 1)
-        temporary_password_line = next(
-            line for line in mail.outbox[0].body.splitlines()
-            if line.startswith('Votre mot de passe provisoire est : ')
+        self.assertTrue(created_user.invitation_pending)
+        self.assertFalse(created_user.has_usable_password())
+        self.assertFalse(
+            TenantMembership.objects.get(user=created_user).is_active,
         )
-        temporary_password = temporary_password_line.split(': ', 1)[1]
-        self.assertTrue(created_user.check_password(temporary_password))
+        self.assertEqual(Invitation.objects.filter(user=created_user).count(), 1)
+        call_command('process_email_outbox')
+        self.assertEqual(len(mail.outbox), 1)
+        invitation_email = mail.outbox[0]
+        self.assertIn('new_employee', invitation_email.body)
+        self.assertNotIn('mot de passe provisoire', invitation_email.body.lower())
         self.assertIn('kourouma-logo.svg', mail.outbox[0].alternatives[0][0])
 
         self.client.force_authenticate(user=None)
         login_response = self.client.post(
             '/api/users/login/',
-            {'identifier': created_user.username, 'password': temporary_password},
+            {'identifier': created_user.username, 'password': 'ChosenPassword!2026'},
             format='json',
         )
-        self.assertEqual(login_response.status_code, 200, login_response.data)
-        self.assertTrue(login_response.data['user']['must_change_password'])
-        blocked = self.client.get('/api/users/')
-        self.assertEqual(blocked.status_code, 403)
-
-        changed = self.client.post(
-            '/api/users/change-password/',
+        self.assertEqual(login_response.status_code, 403, login_response.data)
+        setup_url = next(
+            line for line in invitation_email.body.splitlines()
+            if '/reset-password?uid=' in line
+        )
+        token = parse_qs(urlsplit(setup_url).query)['token'][0]
+        confirmation = self.client.post(
+            '/api/v1/users/pin-reset/confirm/',
             {
-                'current_password': temporary_password,
-                'new_password': 'PermanentSecure!2026',
+                'uid': urlsafe_base64_encode(force_bytes(created_user.pk)),
+                'token': token,
+                'password': 'ChosenPassword!2026',
             },
             format='json',
         )
-        self.assertEqual(changed.status_code, 200, changed.data)
-        self.assertFalse(changed.data['user']['must_change_password'])
+        self.assertEqual(confirmation.status_code, 200, confirmation.data)
+        created_user.refresh_from_db()
+        self.assertTrue(created_user.check_password('ChosenPassword!2026'))
+        self.assertTrue(
+            TenantMembership.objects.get(user=created_user).is_active,
+        )
+
+        successful_login = self.client.post(
+            '/api/users/login/',
+            {
+                'identifier': created_user.username,
+                'password': 'ChosenPassword!2026',
+            },
+            format='json',
+        )
+        self.assertEqual(successful_login.status_code, 200, successful_login.data)
+        self.assertFalse(successful_login.data['user']['must_change_password'])
         current_user = self.client.get('/api/users/me/')
         self.assertEqual(current_user.status_code, 200, current_user.content)
         self.assertFalse(current_user.data['must_change_password'])
@@ -261,6 +284,7 @@ class AuthLoginTests(TestCase):
         self.assertTrue(response.data['success'])
         self.assertNotIn('reset_token', response.data)
         self.assertNotIn('reset_uid', response.data)
+        call_command('process_email_outbox')
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(
             f'/reset-password?uid={urlsafe_base64_encode(force_bytes(self.user.pk))}&token=',
@@ -319,6 +343,7 @@ class AuthLoginTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        call_command('process_email_outbox')
         self.assertEqual(len(mail.outbox), 1)
         invitation_email = mail.outbox[0]
         invited_user.refresh_from_db()
@@ -338,9 +363,7 @@ class AuthLoginTests(TestCase):
             line for line in invitation_email.body.splitlines()
             if '/reset-password?uid=' in line
         )
-        token = setup_url.split('&token=', 1)[1].split('&', 1)[0]
-        self.assertTrue(default_token_generator.check_token(invited_user, token))
-
+        token = parse_qs(urlsplit(setup_url).query)['token'][0]
         confirmation = self.client.post(
             '/api/v1/users/pin-reset/confirm/',
             {
@@ -556,13 +579,8 @@ class AuthLoginTests(TestCase):
         self.assertEqual(first.status_code, 201, first.data)
         first_user = User.objects.get(username='capacity_first_user')
         self.assertTrue(first_user.must_change_password)
-        temporary_password_line = next(
-            line for line in mail.outbox[0].body.splitlines()
-            if line.startswith('Votre mot de passe provisoire est : ')
-        )
-        self.assertTrue(
-            first_user.check_password(temporary_password_line.split(': ', 1)[1])
-        )
+        self.assertTrue(first_user.invitation_pending)
+        self.assertFalse(first_user.has_usable_password())
         self.assertEqual(second.status_code, 400)
         self.assertFalse(User.objects.filter(username='capacity_second_user').exists())
 

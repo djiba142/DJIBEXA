@@ -1,4 +1,5 @@
 from typing import ClassVar
+import uuid
 
 from django.contrib.auth.hashers import check_password, identify_hasher, make_password
 from django.contrib.auth.models import UserManager as DjangoUserManager
@@ -10,6 +11,7 @@ from core.models import Tenant
 
 class UserManager(DjangoUserManager):
     def _create_user(self, username, email, password, **extra_fields):
+        email = self.normalize_email(email).lower()
         pin_code = extra_fields.get('pin_code')
         if pin_code:
             try:
@@ -38,6 +40,7 @@ class User(AbstractUser):
     ]
 
     role = models.CharField(max_length=40, choices=ROLE_CHOICES, default='sales')
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     additional_roles = models.JSONField(default=list, blank=True)
     tenant = models.ForeignKey(
         Tenant,
@@ -65,6 +68,7 @@ class User(AbstractUser):
     failed_login_attempts = models.PositiveIntegerField(default=0)
     locked_until = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    email_verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

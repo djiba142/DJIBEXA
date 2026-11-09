@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Minus, Plus, ShoppingBasket, SlidersHorizontal, Trash2, Truck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -19,22 +19,6 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatNumber, money } from "@/lib/format";
 import { useLocale } from "@/lib/locale";
-
-export const PageRoute = createFileRoute("/_authenticated/ventes/nouvelle")({
-  head: () => ({
-    meta: [
-      { title: "Nouvelle vente — ERP DJIBEXA" },
-      {
-        name: "description",
-        content:
-          "Caisse rapide : recherche de pièces, panier, remise et encaissement en quelques clics.",
-      },
-      { property: "og:title", content: "Nouvelle vente — DJIBEXA" },
-      { property: "og:description", content: "Interface de caisse du magasin." },
-    ],
-  }),
-  component: NouvelleVente,
-});
 
 type Line = {
   id: string;
@@ -75,7 +59,7 @@ function localDateString() {
   return date.toISOString().slice(0, 10);
 }
 
-function NouvelleVente() {
+export function NouvelleVente() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { t } = useLocale();

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 100" role="img" aria-labelledby="title">
+  <title id="title">DJIBEXA</title>
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2678C8"/>
+      <stop offset="1" stop-color="#10243A"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="6" width="88" height="88" rx="22" fill="url(#mark)"/>
+  <path d="M27 27h17v18h22V27h17v52H66V60H44v19H27z" fill="#fff"/>
+  <circle cx="74" cy="27" r="7" fill="#9DC9F1"/>
+  <text x="112" y="65" fill="#10243A" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="800" letter-spacing="1">DJIBEXA</text>
+</svg>

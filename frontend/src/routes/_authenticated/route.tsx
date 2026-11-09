@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouterState } from "@tanstack/react-router";
 
 import { AppSidebar } from "@/components/AppSidebar";
+import { InstallAppButton } from "@/components/InstallAppButton";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Button } from "@/components/ui/button";
 import {
@@ -152,6 +153,7 @@ function AuthenticatedLayout() {
               aria-label={t("nav.management")}
               className="ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-2"
             >
+              <InstallAppButton compact />
               {can("notifications.view") && <NotificationBell />}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 470" role="img" aria-labelledby="title desc">
+  <title id="title">Suivre les opérations avec DJIBEXA</title>
+  <desc id="desc">Illustration originale de liens entre les ventes, les stocks, les achats et les rapports.</desc>
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F5F9FD"/>
+      <stop offset="1" stop-color="#E2EFFA"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#10243A" flood-opacity=".1"/>
+    </filter>
+  </defs>
+  <rect x="12" y="12" width="656" height="446" rx="34" fill="url(#panel)"/>
+  <path d="M177 145h119m89 0h119M177 325h119m89 0h119M340 177v115" fill="none" stroke="#9CB2C8" stroke-width="5" stroke-linecap="round" stroke-dasharray="9 10"/>
+  <g filter="url(#shadow)">
+    <rect x="43" y="82" width="177" height="126" rx="22" fill="#fff"/>
+    <circle cx="89" cy="132" r="25" fill="#E7F0F9"/>
+    <path d="M77 141v-20h24v20m-30 0h36m-30-8h24" fill="none" stroke="#174A78" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="126" y="128" fill="#10243A" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700">Ventes</text>
+    <rect x="126" y="140" width="60" height="7" rx="3.5" fill="#9CB2C8"/>
+    <rect x="126" y="154" width="43" height="7" rx="3.5" fill="#D4E0EB"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="460" y="82" width="177" height="126" rx="22" fill="#fff"/>
+    <circle cx="506" cy="132" r="25" fill="#E7F0F9"/>
+    <path d="M492 121h28v23h-28zm5 6h18m-18 6h18m-18 6h11" fill="none" stroke="#174A78" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="543" y="128" fill="#10243A" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700">Achats</text>
+    <rect x="543" y="140" width="61" height="7" rx="3.5" fill="#9CB2C8"/>
+    <rect x="543" y="154" width="42" height="7" rx="3.5" fill="#D4E0EB"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="43" y="262" width="177" height="126" rx="22" fill="#fff"/>
+    <circle cx="89" cy="312" r="25" fill="#E7F0F9"/>
+    <path d="M74 321h30v-24H74zm6-18h18m-18 6h18m-18 6h11" fill="none" stroke="#174A78" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="126" y="308" fill="#10243A" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700">Stocks</text>
+    <rect x="126" y="320" width="60" height="7" rx="3.5" fill="#9CB2C8"/>
+    <rect x="126" y="334" width="43" height="7" rx="3.5" fill="#D4E0EB"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="460" y="262" width="177" height="126" rx="22" fill="#fff"/>
+    <circle cx="506" cy="312" r="25" fill="#E7F0F9"/>
+    <path d="M492 324v-13h8v13m5 0v-22h8v22m5 0v-17h8v17" fill="none" stroke="#174A78" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="543" y="308" fill="#10243A" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700">Rapports</text>
+    <rect x="543" y="320" width="63" height="7" rx="3.5" fill="#9CB2C8"/>
+    <rect x="543" y="334" width="40" height="7" rx="3.5" fill="#D4E0EB"/>
+  </g>
+  <g filter="url(#shadow)">
+    <circle cx="340" cy="235" r="76" fill="#174A78"/>
+    <circle cx="340" cy="235" r="61" fill="#fff"/>
+    <path d="M307 235h66m-33-33v66" stroke="#D7E5F2" stroke-width="2"/>
+    <path d="M324 255v-25h12v25m8 0v-40h12v40m8 0v-17h12v17" fill="none" stroke="#2678C8" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="340" cy="235" r="76" fill="none" stroke="#2678C8" stroke-width="5" stroke-dasharray="13 11"/>
+  </g>
+  <g fill="#2678C8">
+    <path d="m286 140 9-5v10z"/>
+    <path d="m385 140 9-5v10z"/>
+    <path d="m286 320 9-5v10z"/>
+    <path d="m385 320 9-5v10z"/>
+    <path d="m335 284-5 9h10z"/>
+  </g>
+</svg>
