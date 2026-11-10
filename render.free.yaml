@@ -1,4 +1,5 @@
 # Free preview only. Do not use for live business data.
+# Optional initial platform admin: set DJANGO_BOOTSTRAP_ADMIN_* in Render, then remove them after creation.
 services:
   - type: web
     name: djibexa-api
@@ -7,7 +8,7 @@ services:
     region: frankfurt
     rootDir: backend
     buildCommand: pip install -r requirements-render.txt && python manage.py collectstatic --noinput
-    startCommand: python manage.py migrate --noinput && gunicorn nexora_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    startCommand: python manage.py migrate --noinput && python manage.py bootstrap_platform_admin && gunicorn nexora_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120
     healthCheckPath: /healthz/
     autoDeploy: false
     envVars:
@@ -26,11 +27,9 @@ services:
       - key: DJANGO_CROSS_SITE_COOKIES
         value: "true"
       - key: DB_ENGINE
-        value: postgresql
-      - key: DATABASE_URL
-        fromDatabase:
-          name: djibexa-db
-          property: connectionString
+        value: sqlite
+      - key: ALLOW_DEMO_SQLITE
+        value: "true"
       - key: FRONTEND_BASE_URL
         value: https://djibexa-web.onrender.com
       - key: CORS_ALLOWED_ORIGINS
