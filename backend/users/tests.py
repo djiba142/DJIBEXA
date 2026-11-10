@@ -1,15 +1,17 @@
 import base64
+import os
 from datetime import timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 from importlib import import_module
 import tempfile
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from django.apps import apps
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -22,6 +24,61 @@ from customers.models import Customer
 from payments.models import Payment
 from sales.models import Sale
 from .models import User
+
+
+class BootstrapPlatformAdminCommandTests(TestCase):
+    def test_creates_first_platform_superuser_from_environment(self):
+        environment = {
+            'DJANGO_BOOTSTRAP_ADMIN_USERNAME': 'Sample Platform Admin',
+            'DJANGO_BOOTSTRAP_ADMIN_EMAIL': 'platform.admin@example.com',
+            'DJANGO_BOOTSTRAP_ADMIN_PASSWORD': 'Initial-Admin-Password-2026!',
+        }
+        output = StringIO()
+
+        with patch.dict(os.environ, environment):
+            call_command('bootstrap_platform_admin', stdout=output)
+
+        admin = User.objects.get(username='sample-platform-admin')
+        self.assertEqual(admin.email, 'platform.admin@example.com')
+        self.assertTrue(admin.is_platform_admin)
+        self.assertTrue(admin.is_staff)
+        self.assertTrue(admin.is_superuser)
+        self.assertTrue(admin.must_change_password)
+        self.assertTrue(admin.check_password(environment['DJANGO_BOOTSTRAP_ADMIN_PASSWORD']))
+        self.assertNotIn(environment['DJANGO_BOOTSTRAP_ADMIN_PASSWORD'], output.getvalue())
+
+    def test_existing_platform_admin_is_not_modified_on_subsequent_startup(self):
+        admin = User.objects.create_superuser(
+            username='existing_platform_admin',
+            email='existing.platform.admin@example.com',
+            password='Original-Password-2026!',
+            is_platform_admin=True,
+        )
+        environment = {
+            'DJANGO_BOOTSTRAP_ADMIN_USERNAME': 'another-admin',
+            'DJANGO_BOOTSTRAP_ADMIN_EMAIL': 'another.admin@example.com',
+            'DJANGO_BOOTSTRAP_ADMIN_PASSWORD': 'Another-Password-2026!',
+        }
+
+        with patch.dict(os.environ, environment):
+            call_command('bootstrap_platform_admin', stdout=StringIO())
+
+        self.assertEqual(User.objects.filter(is_platform_admin=True).count(), 1)
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password('Original-Password-2026!'))
+
+    def test_partial_bootstrap_configuration_fails_explicitly(self):
+        environment = {
+            'DJANGO_BOOTSTRAP_ADMIN_USERNAME': 'partial-admin',
+            'DJANGO_BOOTSTRAP_ADMIN_EMAIL': '',
+            'DJANGO_BOOTSTRAP_ADMIN_PASSWORD': '',
+        }
+
+        with patch.dict(os.environ, environment):
+            with self.assertRaisesMessage(CommandError, 'Variables de bootstrap manquantes'):
+                call_command('bootstrap_platform_admin', stdout=StringIO())
+
+        self.assertFalse(User.objects.filter(username='partial-admin').exists())
 
 
 class AuthLoginTests(TestCase):

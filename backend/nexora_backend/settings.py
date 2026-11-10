@@ -135,9 +135,11 @@ WSGI_APPLICATION = 'nexora_backend.wsgi.application'
 TEST_RUNNER = 'nexora_backend.test_runner.NexoraTestRunner'
 
 DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite').lower()
-if IS_PRODUCTION and DB_ENGINE not in {'postgres', 'postgresql'}:
+ALLOW_DEMO_SQLITE = _get_bool(os.getenv('ALLOW_DEMO_SQLITE'), False)
+if IS_PRODUCTION and DB_ENGINE not in {'postgres', 'postgresql'} and not ALLOW_DEMO_SQLITE:
     raise ImproperlyConfigured(
-        'En production, DB_ENGINE doit être configuré sur postgresql.'
+        'En production, DB_ENGINE doit être configuré sur postgresql. ' \
+        'Pour une démo gratuite sans base réelle, activez ALLOW_DEMO_SQLITE=true.'
     )
 
 if DB_ENGINE in {'postgres', 'postgresql'}:
