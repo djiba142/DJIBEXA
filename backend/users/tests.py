@@ -19,7 +19,7 @@ from django.utils.http import urlsafe_base64_encode
 from PIL import Image
 from rest_framework.test import APIClient
 
-from core.models import AuditLog, Invitation, Tenant, TenantMembership
+from core.models import AuditLog, EmailOutbox, Invitation, Tenant, TenantMembership
 from customers.models import Customer
 from payments.models import Payment
 from sales.models import Sale
@@ -331,18 +331,22 @@ class AuthLoginTests(TestCase):
         self.assertTrue(self.user.photo.name.startswith('profile_photos/'))
 
     def test_password_reset_request_emails_link_without_exposing_token(self):
-        response = self.client.post(
-            '/api/v1/users/pin-reset/request/',
-            {'email': self.user.email},
-            format='json',
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                '/api/v1/users/pin-reset/request/',
+                {'email': self.user.email},
+                format='json',
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data['success'])
         self.assertNotIn('reset_token', response.data)
         self.assertNotIn('reset_uid', response.data)
-        call_command('process_email_outbox')
         self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            EmailOutbox.objects.get(recipient=self.user.email).status,
+            'sent',
+        )
         self.assertIn(
             f'/reset-password?uid={urlsafe_base64_encode(force_bytes(self.user.pk))}&token=',
             mail.outbox[0].body,

@@ -1,4 +1,3 @@
-import logging
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
@@ -6,11 +5,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from core.mailer import create_branded_email
 from core.models import EmailOutbox
-from core.outbox import decrypt_outbox_payload
+from core.outbox import send_claimed_outbox_email
 
-logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 8
 LEASE_TIMEOUT = timedelta(minutes=5)
 
@@ -39,37 +36,12 @@ def _claim_next_email(now):
 
 
 def _send_claimed_email(email_id, recipient, encrypted_payload, attempt):
-    try:
-        entry = EmailOutbox(id=email_id, payload=encrypted_payload)
-        payload = decrypt_outbox_payload(entry)
-        email = create_branded_email(
-            subject=payload['subject'],
-            message=payload['message'],
-            recipient_list=[recipient],
-            action_url=payload.get('action_url'),
-            action_label=payload.get('action_label'),
-        )
-        if email.send(fail_silently=False) != 1:
-            raise RuntimeError('Le backend e-mail n’a confirmé aucun envoi.')
-    except Exception as error:
-        logger.exception('Échec de livraison d’un e-mail outbox (id=%s).', email_id)
-        delay_seconds = min(3600, 60 * (2 ** min(attempt - 1, 6)))
-        EmailOutbox.objects.filter(pk=email_id).update(
-            status='failed',
-            next_attempt_at=timezone.now() + timedelta(seconds=delay_seconds),
-            last_error=type(error).__name__,
-            updated_at=timezone.now(),
-        )
-        return False
-
-    now = timezone.now()
-    EmailOutbox.objects.filter(pk=email_id).update(
-        status='sent',
-        sent_at=now,
-        last_error='',
-        updated_at=now,
+    return send_claimed_outbox_email(
+        email_id,
+        recipient,
+        encrypted_payload,
+        attempt,
     )
-    return True
 
 
 class Command(BaseCommand):
