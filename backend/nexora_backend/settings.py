@@ -227,6 +227,13 @@ EMAIL_BACKEND = os.getenv(
     if DEBUG
     else 'django.core.mail.backends.smtp.EmailBackend',
 )
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = _get_bool(os.getenv('EMAIL_USE_TLS'))
+EMAIL_USE_SSL = _get_bool(os.getenv('EMAIL_USE_SSL'))
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@example.invalid').strip()
 if IS_PRODUCTION and EMAIL_BACKEND in {
     'django.core.mail.backends.console.EmailBackend',
     'django.core.mail.backends.locmem.EmailBackend',
@@ -234,13 +241,22 @@ if IS_PRODUCTION and EMAIL_BACKEND in {
     raise ImproperlyConfigured(
         'En production, EMAIL_BACKEND doit permettre un véritable envoi d’e-mail.'
     )
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25'))
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = _get_bool(os.getenv('EMAIL_USE_TLS'))
-EMAIL_USE_SSL = _get_bool(os.getenv('EMAIL_USE_SSL'))
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@example.invalid')
+if (
+    IS_PRODUCTION
+    and EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend'
+    and EMAIL_HOST.lower() == 'smtp.gmail.com'
+    and (
+        not EMAIL_HOST_USER
+        or not EMAIL_HOST_PASSWORD
+        or DEFAULT_FROM_EMAIL.endswith('.invalid')
+        or EMAIL_PORT != 587
+        or not EMAIL_USE_TLS
+        or EMAIL_USE_SSL
+    )
+):
+    raise ImproperlyConfigured(
+        'Avec Gmail SMTP en production, configurez le compte, le mot de passe d’application, l’expéditeur et TLS sur le port 587.'
+    )
 frontend_base_url = os.getenv('FRONTEND_BASE_URL', '').strip()
 if IS_PRODUCTION:
     try:

@@ -151,6 +151,34 @@ class ProductionSettingsTests(SimpleTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('EMAIL_BACKEND doit permettre un véritable envoi', result.stderr)
 
+    def test_production_requires_gmail_smtp_credentials_and_sender(self):
+        result = self.run_production_settings_check(
+            FRONTEND_BASE_URL='https://app.example.test',
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='smtp.gmail.com',
+            EMAIL_HOST_USER='',
+            EMAIL_HOST_PASSWORD='',
+            DEFAULT_FROM_EMAIL='noreply@example.invalid',
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('mot de passe d’application', result.stderr)
+
+    def test_production_accepts_configured_gmail_smtp_credentials_and_sender(self):
+        result = self.run_production_settings_check(
+            FRONTEND_BASE_URL='https://app.example.test',
+            EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+            EMAIL_HOST='smtp.gmail.com',
+            EMAIL_HOST_USER='sender@gmail.com',
+            EMAIL_HOST_PASSWORD='test-app-password',
+            DEFAULT_FROM_EMAIL='sender@gmail.com',
+            EMAIL_PORT='587',
+            EMAIL_USE_TLS='true',
+            EMAIL_USE_SSL='false',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 class BrandedEmailTests(SimpleTestCase):
     @override_settings(FRONTEND_BASE_URL='https://erp.example.test')
@@ -3056,7 +3084,7 @@ class PlatformOperationsTests(TestCase):
 
     @override_settings(FRONTEND_BASE_URL='https://app.example.test')
     @patch(
-        'core.management.commands.process_email_outbox.create_branded_email',
+        'core.outbox.create_branded_email',
         side_effect=OSError('SMTP unavailable'),
     )
     def test_failed_password_setup_email_is_retained_for_retry(self, _create_email):

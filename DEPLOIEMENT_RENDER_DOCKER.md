@@ -48,6 +48,20 @@ ressources payantes pour PostgreSQL et la conservation des fichiers.
    depuis l'URL frontend, les cookies de session/CSRF, les envois SMTP et les
    téléchargements de fichiers privés avant la recette.
 
+## Prévisualisation gratuite et e-mails transactionnels
+
+`render.free.yaml` est réservé à une prévisualisation sans données métier.
+Pour activer les invitations et les liens de réinitialisation de mot de passe
+avec Gmail, activer la validation en deux étapes Google et créer un mot de passe
+d'application. Configurer `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` et
+`DEFAULT_FROM_EMAIL` dans les variables du service API Render ; utiliser le mot
+de passe d'application comme `EMAIL_HOST_PASSWORD`, jamais le mot de passe
+normal du compte. Saisir le secret directement dans Render, jamais dans Git ni
+dans le chat. Le backend envoie les e-mails après validation de la transaction
+de mise en file d'attente. Un échec est consigné dans l'outbox et les logs
+Render ; sans worker permanent, les nouvelles tentatives doivent être
+déclenchées par le traitement de l'outbox.
+
 Le Blueprint ne crée pas de tâche planifiée WhatsApp. Les rappels automatiques
 ne doivent être activés qu'après configuration du fournisseur, vérification des
 consentements et choix du coût/fréquence d'un service Cron Render. Ne pas lancer
